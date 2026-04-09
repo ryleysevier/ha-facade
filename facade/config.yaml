@@ -1,6 +1,6 @@
 name: "Facade"
 description: "AI-powered dweller pet that reacts to your smart home via MQTT"
-version: "1.0.1"
+version: "1.0.2"
 slug: "facade"
 image: "ghcr.io/ryleysevier/ha-facade/{arch}"
 arch:
@@ -69,5 +69,6 @@ schema:
   ignored_entities:
     - "str"
   log_level: list(trace|debug|info|notice|warning|error|fatal)
+init: false
 startup: "application"
 boot: "auto"
