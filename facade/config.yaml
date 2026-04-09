@@ -1,5 +1,5 @@
 name: "Facade"
-description: "AI-powered tamagotchi pet that reacts to your smart home via MQTT"
+description: "AI-powered dweller pet that reacts to your smart home via MQTT"
 version: "1.0.0"
 slug: "facade"
 arch:
@@ -14,7 +14,7 @@ options:
   mqtt_port: 1883
   mqtt_user: "facade"
   mqtt_password: ""
-  mqtt_topic_prefix: "tamagotchi"
+  mqtt_topic_prefix: "dweller"
   pet_name: "Buddy"
   personality: "curious, empathetic, slightly dramatic"
   debounce_seconds: 30

@@ -1,4 +1,4 @@
-"""Facade — tamagotchi pet manager for Home Assistant."""
+"""Facade — dweller pet manager for Home Assistant."""
 
 import json
 import logging
@@ -43,7 +43,7 @@ WATCHED_DOMAINS = set(OPTIONS.get("watched_domains", [
 WATCHED_ENTITIES = set(OPTIONS.get("watched_entities", []))
 IGNORED_ENTITIES = set(OPTIONS.get("ignored_entities", []))
 LOG_LEVEL = OPTIONS.get("log_level", "info").upper()
-TOPIC_PREFIX = OPTIONS.get("mqtt_topic_prefix", "tamagotchi")
+TOPIC_PREFIX = OPTIONS.get("mqtt_topic_prefix", "dweller")
 PET_NAME = OPTIONS.get("pet_name", "Buddy")
 PERSONALITY = OPTIONS.get("personality", "curious, empathetic, slightly dramatic")
 MAX_CHANGES_PER_HOUR = OPTIONS.get("max_changes_per_hour", 12)
@@ -327,7 +327,7 @@ def publish_face(face_command: dict, reason: str = ""):
 # Prompts
 # ---------------------------------------------------------------------------
 
-HAIKU_SYSTEM = """You are a filter for a virtual pet tamagotchi that lives on a small round screen.
+HAIKU_SYSTEM = """You are a filter for a virtual pet dweller that lives on a small round screen.
 Your job is to decide if a Home Assistant event is interesting enough to change
 the pet's facial expression.
 
