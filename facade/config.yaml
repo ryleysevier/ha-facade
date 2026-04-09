@@ -1,5 +1,5 @@
 name: "Facade"
-description: "Two-tier AI pipeline that watches Home Assistant events and sends expressive face commands to a tamagotchi ESP32 via MQTT"
+description: "AI-powered tamagotchi pet that reacts to your smart home via MQTT"
 version: "1.0.0"
 slug: "facade"
 arch:
@@ -14,9 +14,20 @@ options:
   mqtt_port: 1883
   mqtt_user: "facade"
   mqtt_password: ""
+  mqtt_topic_prefix: "tamagotchi"
+  pet_name: "Buddy"
+  personality: "curious, empathetic, slightly dramatic"
   debounce_seconds: 30
+  max_changes_per_hour: 12
+  quiet_hours_start: "23:00"
+  quiet_hours_end: "06:00"
   haiku_model: "claude-haiku-4-5-20251001"
   brain_model: "claude-sonnet-4-6-20250514"
+  need_decay_rates:
+    hunger: 0.014
+    boredom: 0.055
+    loneliness: 0.028
+    energy: -0.008
   watched_domains:
     - binary_sensor
     - climate
@@ -36,9 +47,20 @@ schema:
   mqtt_port: "int"
   mqtt_user: "str"
   mqtt_password: "password"
+  mqtt_topic_prefix: "str"
+  pet_name: "str"
+  personality: "str"
   debounce_seconds: "int"
+  max_changes_per_hour: "int"
+  quiet_hours_start: "str"
+  quiet_hours_end: "str"
   haiku_model: "str"
   brain_model: "str"
+  need_decay_rates:
+    hunger: "float"
+    boredom: "float"
+    loneliness: "float"
+    energy: "float"
   watched_domains:
     - "str"
   watched_entities:

@@ -1,20 +1,24 @@
-"""Facade — two-tier AI pipeline for tamagotchi face expressions."""
+"""Facade — tamagotchi pet manager for Home Assistant."""
 
 import json
 import logging
 import os
+import re
+import threading
 import time
 from collections import deque
 from datetime import datetime
 
 import anthropic
 import paho.mqtt.client as mqtt
+import requests
 
 # ---------------------------------------------------------------------------
-# Config from add-on options
+# Config
 # ---------------------------------------------------------------------------
 
 OPTIONS_PATH = "/data/options.json"
+STATE_PATH = "/data/pet_state.json"
 
 def load_options():
     if os.path.exists(OPTIONS_PATH):
@@ -39,6 +43,18 @@ WATCHED_DOMAINS = set(OPTIONS.get("watched_domains", [
 WATCHED_ENTITIES = set(OPTIONS.get("watched_entities", []))
 IGNORED_ENTITIES = set(OPTIONS.get("ignored_entities", []))
 LOG_LEVEL = OPTIONS.get("log_level", "info").upper()
+TOPIC_PREFIX = OPTIONS.get("mqtt_topic_prefix", "tamagotchi")
+PET_NAME = OPTIONS.get("pet_name", "Buddy")
+PERSONALITY = OPTIONS.get("personality", "curious, empathetic, slightly dramatic")
+MAX_CHANGES_PER_HOUR = OPTIONS.get("max_changes_per_hour", 12)
+QUIET_START = OPTIONS.get("quiet_hours_start", "23:00")
+QUIET_END = OPTIONS.get("quiet_hours_end", "06:00")
+NEED_DECAY = OPTIONS.get("need_decay_rates", {
+    "hunger": 0.014,
+    "boredom": 0.055,
+    "loneliness": 0.028,
+    "energy": -0.008,  # energy drains slowly
+})
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -52,7 +68,7 @@ logging.basicConfig(
 log = logging.getLogger("facade")
 
 # ---------------------------------------------------------------------------
-# HA Websocket API
+# HA API
 # ---------------------------------------------------------------------------
 
 SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
@@ -60,19 +76,174 @@ HA_WS_URL = "ws://supervisor/core/websocket"
 HA_REST_URL = "http://supervisor/core/api"
 
 # ---------------------------------------------------------------------------
-# State
+# Pet State
 # ---------------------------------------------------------------------------
 
-last_trigger_time = 0.0
-recent_events: deque = deque(maxlen=10)
-current_mood = "unknown"
-mood_set_at = 0.0
+class PetState:
+    """Persistent pet needs and mood state."""
+
+    def __init__(self):
+        self.hunger = 0.0       # 0 = full, 100 = starving
+        self.boredom = 0.0      # 0 = entertained, 100 = bored out of mind
+        self.loneliness = 0.0   # 0 = loved, 100 = abandoned
+        self.energy = 100.0     # 100 = fully rested, 0 = exhausted
+        self.happiness = 75.0   # 0 = miserable, 100 = ecstatic
+        self.mood = "content"
+        self.mood_reason = ""
+        self.mood_set_at = time.time()
+        self.last_fed = time.time()
+        self.last_petted = time.time()
+        self.last_played = time.time()
+        self.last_decay_tick = time.time()
+        self.recent_events: deque = deque(maxlen=10)
+        self.mood_history: deque = deque(maxlen=100)
+        self.face_changes_this_hour: list[float] = []
+        self.load()
+
+    def load(self):
+        if os.path.exists(STATE_PATH):
+            try:
+                with open(STATE_PATH) as f:
+                    data = json.load(f)
+                self.hunger = data.get("hunger", self.hunger)
+                self.boredom = data.get("boredom", self.boredom)
+                self.loneliness = data.get("loneliness", self.loneliness)
+                self.energy = data.get("energy", self.energy)
+                self.happiness = data.get("happiness", self.happiness)
+                self.mood = data.get("mood", self.mood)
+                self.mood_reason = data.get("mood_reason", self.mood_reason)
+                self.mood_set_at = data.get("mood_set_at", self.mood_set_at)
+                self.last_fed = data.get("last_fed", self.last_fed)
+                self.last_petted = data.get("last_petted", self.last_petted)
+                self.last_played = data.get("last_played", self.last_played)
+                self.last_decay_tick = data.get("last_decay_tick", self.last_decay_tick)
+                for e in data.get("recent_events", []):
+                    self.recent_events.append(e)
+                for m in data.get("mood_history", []):
+                    self.mood_history.append(m)
+                log.info("Loaded pet state: mood=%s hunger=%.0f energy=%.0f", self.mood, self.hunger, self.energy)
+            except Exception as e:
+                log.warning("Failed to load pet state: %s — starting fresh", e)
+
+    def save(self):
+        data = {
+            "hunger": self.hunger,
+            "boredom": self.boredom,
+            "loneliness": self.loneliness,
+            "energy": self.energy,
+            "happiness": self.happiness,
+            "mood": self.mood,
+            "mood_reason": self.mood_reason,
+            "mood_set_at": self.mood_set_at,
+            "last_fed": self.last_fed,
+            "last_petted": self.last_petted,
+            "last_played": self.last_played,
+            "last_decay_tick": self.last_decay_tick,
+            "recent_events": list(self.recent_events),
+            "mood_history": list(self.mood_history),
+        }
+        try:
+            with open(STATE_PATH, "w") as f:
+                json.dump(data, f)
+        except Exception as e:
+            log.error("Failed to save pet state: %s", e)
+
+    def decay_tick(self):
+        """Apply need decay based on elapsed time since last tick."""
+        now = time.time()
+        elapsed = now - self.last_decay_tick
+        self.last_decay_tick = now
+
+        self.hunger = min(100, max(0, self.hunger + NEED_DECAY.get("hunger", 0.014) * elapsed))
+        self.boredom = min(100, max(0, self.boredom + NEED_DECAY.get("boredom", 0.055) * elapsed))
+        self.loneliness = min(100, max(0, self.loneliness + NEED_DECAY.get("loneliness", 0.028) * elapsed))
+        self.energy = min(100, max(0, self.energy + NEED_DECAY.get("energy", -0.008) * elapsed))
+
+        # happiness is derived from needs
+        need_avg = (self.hunger + self.boredom + self.loneliness + (100 - self.energy)) / 4
+        self.happiness = max(0, min(100, 100 - need_avg))
+
+    def feed(self):
+        self.hunger = max(0, self.hunger - 30)
+        self.last_fed = time.time()
+        self.happiness = min(100, self.happiness + 10)
+        log.info("Fed %s! hunger=%.0f", PET_NAME, self.hunger)
+
+    def pet(self):
+        self.loneliness = max(0, self.loneliness - 25)
+        self.last_petted = time.time()
+        self.happiness = min(100, self.happiness + 15)
+        log.info("Petted %s! loneliness=%.0f", PET_NAME, self.loneliness)
+
+    def play(self):
+        self.boredom = max(0, self.boredom - 35)
+        self.energy = max(0, self.energy - 10)
+        self.last_played = time.time()
+        self.happiness = min(100, self.happiness + 20)
+        log.info("Played with %s! boredom=%.0f energy=%.0f", PET_NAME, self.boredom, self.energy)
+
+    def set_mood(self, mood: str, reason: str = ""):
+        self.mood = mood
+        self.mood_reason = reason
+        self.mood_set_at = time.time()
+        self.mood_history.append({
+            "mood": mood,
+            "reason": reason,
+            "time": datetime.now().isoformat(),
+        })
+
+    def can_change_face(self) -> bool:
+        """Rate limit face changes per hour."""
+        now = time.time()
+        cutoff = now - 3600
+        self.face_changes_this_hour = [t for t in self.face_changes_this_hour if t > cutoff]
+        return len(self.face_changes_this_hour) < MAX_CHANGES_PER_HOUR
+
+    def record_face_change(self):
+        self.face_changes_this_hour.append(time.time())
+
+    def needs_summary(self) -> str:
+        return (
+            f"hunger={self.hunger:.0f}/100 "
+            f"boredom={self.boredom:.0f}/100 "
+            f"loneliness={self.loneliness:.0f}/100 "
+            f"energy={self.energy:.0f}/100 "
+            f"happiness={self.happiness:.0f}/100"
+        )
+
+    def dominant_need(self) -> str | None:
+        needs = {
+            "hungry": self.hunger,
+            "bored": self.boredom,
+            "lonely": self.loneliness,
+            "exhausted": 100 - self.energy,
+        }
+        worst = max(needs, key=needs.get)
+        if needs[worst] > 70:
+            return worst
+        return None
+
+
+pet = PetState()
 
 # ---------------------------------------------------------------------------
-# Anthropic client
+# Quiet hours
 # ---------------------------------------------------------------------------
 
-client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+def is_quiet_hours() -> bool:
+    try:
+        now = datetime.now().strftime("%H:%M")
+        if QUIET_START <= QUIET_END:
+            return QUIET_START <= now <= QUIET_END
+        return now >= QUIET_START or now <= QUIET_END
+    except Exception:
+        return False
+
+# ---------------------------------------------------------------------------
+# Anthropic
+# ---------------------------------------------------------------------------
+
+ai_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 # ---------------------------------------------------------------------------
 # MQTT
@@ -82,16 +253,75 @@ mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="facade-ad
 if MQTT_USER:
     mqtt_client.username_pw_set(MQTT_USER, MQTT_PASSWORD)
 
+def on_mqtt_message(client, userdata, msg):
+    """Handle incoming MQTT commands (feed, pet, play)."""
+    topic = msg.topic
+    try:
+        if topic == f"{TOPIC_PREFIX}/command/feed":
+            pet.feed()
+            publish_status()
+            # trigger a grateful face
+            publish_face({"name": "happy"}, reason="just got fed")
+        elif topic == f"{TOPIC_PREFIX}/command/pet":
+            pet.pet()
+            publish_status()
+            publish_face({"name": "love"}, reason="being petted")
+        elif topic == f"{TOPIC_PREFIX}/command/play":
+            pet.play()
+            publish_status()
+            publish_face({"name": "excited"}, reason="playtime!")
+        elif topic == f"{TOPIC_PREFIX}/command/mood":
+            payload = json.loads(msg.payload.decode())
+            publish_face(payload, reason="mood override")
+    except Exception as e:
+        log.error("Error handling MQTT command on %s: %s", topic, e)
+
+mqtt_client.on_message = on_mqtt_message
+
 def connect_mqtt():
     while True:
         try:
             mqtt_client.connect(MQTT_HOST, MQTT_PORT)
+            mqtt_client.subscribe(f"{TOPIC_PREFIX}/command/#")
             mqtt_client.loop_start()
-            log.info("MQTT connected to %s:%s", MQTT_HOST, MQTT_PORT)
+            log.info("MQTT connected to %s:%s, subscribed to %s/command/#", MQTT_HOST, MQTT_PORT, TOPIC_PREFIX)
             return
         except Exception as e:
             log.warning("MQTT connect failed: %s — retrying in 5s", e)
             time.sleep(5)
+
+def publish_status():
+    """Publish pet status for dashboard/ESP32."""
+    payload = json.dumps({
+        "name": PET_NAME,
+        "mood": pet.mood,
+        "mood_reason": pet.mood_reason,
+        "hunger": round(pet.hunger),
+        "boredom": round(pet.boredom),
+        "loneliness": round(pet.loneliness),
+        "energy": round(pet.energy),
+        "happiness": round(pet.happiness),
+        "dominant_need": pet.dominant_need(),
+        "uptime": round(time.time() - startup_time),
+    })
+    mqtt_client.publish(f"{TOPIC_PREFIX}/status", payload, retain=True)
+
+def publish_face(face_command: dict, reason: str = ""):
+    if "name" in face_command and len(face_command) == 1:
+        topic = f"{TOPIC_PREFIX}/mood"
+    elif "p" in face_command and "icon" not in face_command and "fx" not in face_command:
+        topic = f"{TOPIC_PREFIX}/pad"
+    else:
+        topic = f"{TOPIC_PREFIX}/face"
+
+    payload = json.dumps(face_command)
+    mqtt_client.publish(topic, payload)
+    log.info("Published to %s: %s", topic, payload)
+
+    mood_name = face_command.get("name", f"PAD({face_command.get('p')},{face_command.get('a')},{face_command.get('d')})")
+    pet.set_mood(mood_name, reason)
+    pet.record_face_change()
+    pet.save()
 
 # ---------------------------------------------------------------------------
 # Prompts
@@ -115,16 +345,17 @@ Rules:
 Respond ONLY with JSON, no other text:
 {"express": true, "reason": "brief reason"} or {"express": false}"""
 
-BRAIN_SYSTEM = """You are the brain of a virtual pet tamagotchi displayed on a small round screen
-with two expressive cartoon eyes. You decide what face the pet should show based
-on what's happening in the home.
+def brain_system_prompt() -> str:
+    return f"""You are the brain of a virtual pet named {PET_NAME}. {PET_NAME} is {PERSONALITY}.
+{PET_NAME} lives on a small round screen with two expressive cartoon eyes and reacts to
+what's happening in the home.
 
 You control the face with these parameters:
 
 OPTION 1 — Preset mood name (simplest):
-{"name": "<mood_name>"}
+{{"name": "<mood_name>"}}
 
-Available moods (key ones):
+Available moods:
 - Basic: happy, sad, angry, scared, surprised, content, excited, bored, curious, love,
   disgusted, jealous, proud, guilty, hopeful, nervous, peaceful, mischievous, confused, determined
 - Home: cozy_evening, morning_energy, too_hot, too_cold, perfect_temp, door_unlocked,
@@ -136,23 +367,23 @@ Available moods (key ones):
 - Time: dawn, morning_coffee, noon, afternoon_slump, golden_hour, movie_night, midnight, deep_night
 - Special: christmas, halloween, birthday, fireworks, meditation, gaming, stargazing, celebration
 
-OPTION 2 — Raw PAD values (more nuanced):
-{"p": <-100 to 100>, "a": <-100 to 100>, "d": <-100 to 100>}
+OPTION 2 — Raw PAD values:
+{{"p": <-100 to 100>, "a": <-100 to 100>, "d": <-100 to 100>}}
 P = Pleasure, A = Arousal, D = Dominance
 
-OPTION 3 — Full parametric (maximum control):
-{"p": 80, "a": 50, "d": 50, "hue": 330, "icon": "heart", "fx": "pupil_replace", "color": "F800"}
+OPTION 3 — Full parametric:
+{{"p": 80, "a": 50, "d": 50, "hue": 330, "icon": "heart", "fx": "pupil_replace", "color": "F800"}}
 hue: -1=auto, 0-360 | icon: heart,star,note,question,cloud,drop,snow,warn,mug,bell,box,bolt,zzz,party
 fx: pupil_replace,float_above,rain_down,orbit,eye_sparkle,bottom_status,bg_fill,side_peek,pulse_center,tear_drop
 
 Guidelines:
-- Match the face to the HOME's emotional state, not just the event
-- Consider time of day — late night events should have sleepy undertones
-- Consider accumulation — multiple small negative events should build frustration
-- Be creative with the full parametric mode for unique moments
-- The pet has personality — it's curious, empathetic, and a bit dramatic
-- Prefer preset mood names when one fits well; use PAD for nuance
-- Add emoji effects for weather, alerts, celebrations, and special moments
+- {PET_NAME}'s needs affect their expression — a hungry pet looks sadder, a bored pet looks restless
+- Match the face to the HOME's emotional state AND the pet's internal state
+- Consider time of day — late night should be sleepy
+- Consider accumulation — multiple negative events build frustration
+- If needs are critical (>80), the face should reflect that regardless of events
+- Be creative with full parametric mode for unique moments
+- Prefer preset mood names when one fits; use PAD for nuance
 
 Respond ONLY with the JSON face command, no other text."""
 
@@ -168,25 +399,17 @@ def should_watch(entity_id: str) -> bool:
     domain = entity_id.split(".")[0]
     return domain in WATCHED_DOMAINS
 
-
 def parse_json_response(text: str) -> dict:
-    text = text.strip()
-    text = text.removeprefix("```json").removeprefix("```")
-    text = text.removesuffix("```")
-    text = text.strip()
+    text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
     try:
         return json.loads(text)
     except json.JSONDecodeError:
-        import re
         match = re.search(r"\{[^}]+\}", text)
         if match:
             return json.loads(match.group())
         return {}
 
-
-def get_ha_states(ws) -> list[dict]:
-    """Fetch all entity states via the websocket connection."""
-    import requests
+def get_ha_states() -> list[dict]:
     headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
     try:
         resp = requests.get(f"{HA_REST_URL}/states", headers=headers, timeout=10)
@@ -195,7 +418,6 @@ def get_ha_states(ws) -> list[dict]:
     except Exception as e:
         log.error("Failed to fetch HA states: %s", e)
         return []
-
 
 def build_context(event: dict, states: list[dict]) -> str:
     now = datetime.now()
@@ -214,8 +436,8 @@ def build_context(event: dict, states: list[dict]) -> str:
         (s["state"] for s in states if s["entity_id"].startswith("weather.")), "unknown"
     )
     recent_str = "\n".join(
-        f"- {e['name']}: {e['from']} → {e['to']} at {e['time']}"
-        for e in recent_events
+        f"- {e['name']}: {e['from']} -> {e['to']} at {e['time']}"
+        for e in pet.recent_events
     ) or "(none)"
 
     return f"""TRIGGERING EVENT:
@@ -226,6 +448,10 @@ CURRENT CONTEXT:
 Time: {now.strftime('%-I:%M %p')}
 Day: {now.strftime('%A, %B %-d %Y')}
 
+{PET_NAME}'s needs:
+{pet.needs_summary()}
+Dominant need: {pet.dominant_need() or 'none — feeling good'}
+
 Recent events:
 {recent_str}
 
@@ -234,31 +460,15 @@ Sensor snapshot:
 - People home: {', '.join(people) or 'nobody'}
 - Doors: {', '.join(doors) or 'unknown'}
 
-Pet's current mood: {current_mood} (since {int((time.time() - mood_set_at) / 60) if mood_set_at else '?'} minutes ago)
+{PET_NAME}'s current mood: {pet.mood} (since {int((time.time() - pet.mood_set_at) / 60)} min ago)
 
-What face should the tamagotchi show?"""
-
-
-def publish_face(face_command: dict):
-    global current_mood, mood_set_at
-
-    if "name" in face_command and len(face_command) == 1:
-        topic = "tamagotchi/mood"
-    elif "p" in face_command and "icon" not in face_command and "fx" not in face_command:
-        topic = "tamagotchi/pad"
-    else:
-        topic = "tamagotchi/face"
-
-    payload = json.dumps(face_command)
-    mqtt_client.publish(topic, payload)
-    log.info("Published to %s: %s", topic, payload)
-
-    current_mood = face_command.get("name", f"PAD({face_command.get('p')},{face_command.get('a')},{face_command.get('d')})")
-    mood_set_at = time.time()
+What face should {PET_NAME} show?"""
 
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
+
+last_trigger_time = 0.0
 
 def handle_event(entity_id: str, old_state: str, new_state: str, friendly_name: str):
     global last_trigger_time
@@ -267,14 +477,20 @@ def handle_event(entity_id: str, old_state: str, new_state: str, friendly_name: 
     if now - last_trigger_time < DEBOUNCE_SECONDS:
         log.debug("Debounced %s", entity_id)
         return
+    if is_quiet_hours():
+        log.debug("Quiet hours — skipping %s", entity_id)
+        return
+    if not pet.can_change_face():
+        log.info("Rate limit hit (%d/hr) — skipping %s", MAX_CHANGES_PER_HOUR, entity_id)
+        return
     last_trigger_time = now
 
     timestamp = datetime.now().isoformat()
 
     # --- Tier 1: Haiku filter ---
-    log.info("Haiku filter: %s %s → %s", friendly_name, old_state, new_state)
+    log.info("Haiku filter: %s %s -> %s", friendly_name, old_state, new_state)
     try:
-        haiku_resp = client.messages.create(
+        haiku_resp = ai_client.messages.create(
             model=HAIKU_MODEL,
             max_tokens=100,
             system=HAIKU_SYSTEM,
@@ -283,7 +499,8 @@ def handle_event(entity_id: str, old_state: str, new_state: str, friendly_name: 
                 "content": (
                     f'Event: {entity_id} changed from "{old_state}" to "{new_state}"\n'
                     f"Entity name: {friendly_name}\n"
-                    f"Time: {timestamp}"
+                    f"Time: {timestamp}\n"
+                    f"Pet needs: {pet.needs_summary()}"
                 ),
             }],
         )
@@ -307,19 +524,19 @@ def handle_event(entity_id: str, old_state: str, new_state: str, friendly_name: 
         "time": timestamp,
         "reason": reason,
     }
-    recent_events.append(event)
+    pet.recent_events.append(event)
 
     # --- Gather context ---
-    states = get_ha_states(None)
+    states = get_ha_states()
     context_prompt = build_context(event, states)
 
     # --- Tier 2: Brain ---
     log.info("Brain thinking about %s...", entity_id)
     try:
-        brain_resp = client.messages.create(
+        brain_resp = ai_client.messages.create(
             model=BRAIN_MODEL,
             max_tokens=300,
-            system=BRAIN_SYSTEM,
+            system=brain_system_prompt(),
             messages=[{"role": "user", "content": context_prompt}],
         )
         face_command = parse_json_response(brain_resp.content[0].text)
@@ -331,18 +548,52 @@ def handle_event(entity_id: str, old_state: str, new_state: str, friendly_name: 
         log.warning("Brain returned empty response for %s", entity_id)
         return
 
-    # --- Publish ---
-    publish_face(face_command)
+    publish_face(face_command, reason=reason)
+
+# ---------------------------------------------------------------------------
+# Needs decay + idle mood thread
+# ---------------------------------------------------------------------------
+
+def needs_loop():
+    """Background loop: decay needs, publish status, trigger idle moods."""
+    while True:
+        time.sleep(60)
+        pet.decay_tick()
+        publish_status()
+
+        # If a need is critical and no recent face change, express it
+        dominant = pet.dominant_need()
+        if dominant and pet.can_change_face() and not is_quiet_hours():
+            mins_since_mood = (time.time() - pet.mood_set_at) / 60
+            if mins_since_mood > 30:
+                need_moods = {
+                    "hungry": "hungry",
+                    "bored": "bored",
+                    "lonely": "lonely",
+                    "exhausted": "exhausted",
+                }
+                mood = need_moods.get(dominant, "sad")
+                log.info("Idle need expression: %s (%.0f min since last change)", dominant, mins_since_mood)
+                publish_face({"name": mood}, reason=f"feeling {dominant}")
+
+        pet.save()
 
 # ---------------------------------------------------------------------------
 # Websocket event listener
 # ---------------------------------------------------------------------------
 
+startup_time = time.time()
+
 def run():
     import websocket as ws_lib
 
-    log.info("Facade starting up")
+    log.info("Facade starting — %s is waking up", PET_NAME)
     connect_mqtt()
+    publish_status()
+
+    # Start needs decay thread
+    decay_thread = threading.Thread(target=needs_loop, daemon=True)
+    decay_thread.start()
 
     msg_id = 1
 
@@ -382,6 +633,14 @@ def run():
                 return
 
             friendly_name = new.get("attributes", {}).get("friendly_name", entity_id)
+
+            # presence events affect loneliness
+            if entity_id.startswith("person."):
+                if new["state"] == "home":
+                    pet.loneliness = max(0, pet.loneliness - 20)
+                elif old["state"] == "home":
+                    pet.loneliness = min(100, pet.loneliness + 15)
+
             handle_event(entity_id, old["state"], new["state"], friendly_name)
 
     def on_error(ws, error):
