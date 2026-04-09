@@ -273,6 +273,9 @@ def on_mqtt_message(client, userdata, msg):
         elif topic == f"{TOPIC_PREFIX}/command/mood":
             payload = json.loads(msg.payload.decode())
             publish_face(payload, reason="mood override")
+        elif topic == f"{TOPIC_PREFIX}/command/mood_select":
+            mood_name = msg.payload.decode().strip()
+            publish_face({"name": mood_name}, reason="mood override")
     except Exception as e:
         log.error("Error handling MQTT command on %s: %s", topic, e)
 
@@ -289,6 +292,137 @@ def connect_mqtt():
         except Exception as e:
             log.warning("MQTT connect failed: %s — retrying in 5s", e)
             time.sleep(5)
+
+# ---------------------------------------------------------------------------
+# MQTT Discovery — auto-create HA entities
+# ---------------------------------------------------------------------------
+
+DISCOVERY_PREFIX = "homeassistant"
+DEVICE_INFO = {
+    "identifiers": ["facade_dweller"],
+    "name": "Dweller",
+    "manufacturer": "Facade",
+    "model": "AI Pet",
+    "sw_version": "1.0.0",
+}
+
+def publish_discovery():
+    """Publish MQTT discovery configs so HA auto-creates entities."""
+    status_topic = f"{TOPIC_PREFIX}/status"
+    obj_id = "dweller"
+
+    # --- Sensors ---
+    sensors = [
+        ("hunger", "Hunger", "mdi:food-drumstick", None),
+        ("boredom", "Boredom", "mdi:emoticon-neutral-outline", None),
+        ("loneliness", "Loneliness", "mdi:account-heart-outline", None),
+        ("energy", "Energy", "mdi:lightning-bolt", None),
+        ("happiness", "Happiness", "mdi:emoticon-happy-outline", None),
+    ]
+    for key, name, icon, device_class in sensors:
+        config = {
+            "name": f"{PET_NAME} {name}",
+            "unique_id": f"{obj_id}_{key}",
+            "state_topic": status_topic,
+            "value_template": f"{{{{ value_json.{key} }}}}",
+            "unit_of_measurement": "%",
+            "icon": icon,
+            "state_class": "measurement",
+            "device": DEVICE_INFO,
+        }
+        if device_class:
+            config["device_class"] = device_class
+        mqtt_client.publish(
+            f"{DISCOVERY_PREFIX}/sensor/{obj_id}_{key}/config",
+            json.dumps(config),
+            retain=True,
+        )
+
+    # Mood sensor (text)
+    mqtt_client.publish(
+        f"{DISCOVERY_PREFIX}/sensor/{obj_id}_mood/config",
+        json.dumps({
+            "name": f"{PET_NAME} Mood",
+            "unique_id": f"{obj_id}_mood",
+            "state_topic": status_topic,
+            "value_template": "{{ value_json.mood }}",
+            "icon": "mdi:emoticon-outline",
+            "device": DEVICE_INFO,
+        }),
+        retain=True,
+    )
+
+    # Mood reason sensor
+    mqtt_client.publish(
+        f"{DISCOVERY_PREFIX}/sensor/{obj_id}_mood_reason/config",
+        json.dumps({
+            "name": f"{PET_NAME} Mood Reason",
+            "unique_id": f"{obj_id}_mood_reason",
+            "state_topic": status_topic,
+            "value_template": "{{ value_json.mood_reason }}",
+            "icon": "mdi:thought-bubble-outline",
+            "device": DEVICE_INFO,
+        }),
+        retain=True,
+    )
+
+    # Dominant need sensor
+    mqtt_client.publish(
+        f"{DISCOVERY_PREFIX}/sensor/{obj_id}_dominant_need/config",
+        json.dumps({
+            "name": f"{PET_NAME} Dominant Need",
+            "unique_id": f"{obj_id}_dominant_need",
+            "state_topic": status_topic,
+            "value_template": "{{ value_json.dominant_need | default('none', true) }}",
+            "icon": "mdi:alert-circle-outline",
+            "device": DEVICE_INFO,
+        }),
+        retain=True,
+    )
+
+    # --- Buttons ---
+    buttons = [
+        ("feed", "Feed", "mdi:food-drumstick"),
+        ("pet", "Pet", "mdi:hand-heart"),
+        ("play", "Play", "mdi:gamepad-variant-outline"),
+    ]
+    for key, name, icon in buttons:
+        mqtt_client.publish(
+            f"{DISCOVERY_PREFIX}/button/{obj_id}_{key}/config",
+            json.dumps({
+                "name": f"{name} {PET_NAME}",
+                "unique_id": f"{obj_id}_{key}",
+                "command_topic": f"{TOPIC_PREFIX}/command/{key}",
+                "icon": icon,
+                "device": DEVICE_INFO,
+            }),
+            retain=True,
+        )
+
+    # --- Mood override select ---
+    mood_options = [
+        "happy", "sad", "angry", "scared", "surprised", "content", "excited",
+        "bored", "curious", "love", "peaceful", "mischievous", "confused",
+        "cozy_evening", "morning_energy", "hungry", "tired", "exhausted",
+        "playful", "lonely", "calm", "zen", "napping", "hyper",
+        "someone_arrived", "someone_left", "owner_home", "party_mode",
+        "rain_detected", "sunny", "thunderstorm", "deep_night",
+        "celebration", "gaming", "stargazing", "meditation",
+    ]
+    mqtt_client.publish(
+        f"{DISCOVERY_PREFIX}/select/{obj_id}_mood_override/config",
+        json.dumps({
+            "name": f"{PET_NAME} Mood Override",
+            "unique_id": f"{obj_id}_mood_override",
+            "command_topic": f"{TOPIC_PREFIX}/command/mood_select",
+            "options": mood_options,
+            "icon": "mdi:emoticon-cool-outline",
+            "device": DEVICE_INFO,
+        }),
+        retain=True,
+    )
+
+    log.info("Published MQTT discovery for %d entities", 5 + 3 + 3 + 1)
 
 def publish_status():
     """Publish pet status for dashboard/ESP32."""
@@ -589,6 +723,7 @@ def run():
 
     log.info("Facade starting — %s is waking up", PET_NAME)
     connect_mqtt()
+    publish_discovery()
     publish_status()
 
     # Start needs decay thread

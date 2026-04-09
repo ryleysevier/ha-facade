@@ -74,6 +74,59 @@ HA Event Bus ──→ Haiku Filter ──→ Sonnet Brain ──→ MQTT ──
 | `dweller/command/play` | *(any)* | Play with it (-35 boredom, -10 energy) |
 | `dweller/command/mood` | `{"name": "excited"}` | Override mood directly |
 
+## Home Assistant Entities
+
+The add-on auto-creates entities via MQTT Discovery. No custom component needed.
+
+### Sensors
+| Entity | Description |
+|--------|-------------|
+| `sensor.dweller_hunger` | Hunger level (0-100%) |
+| `sensor.dweller_boredom` | Boredom level (0-100%) |
+| `sensor.dweller_loneliness` | Loneliness level (0-100%) |
+| `sensor.dweller_energy` | Energy level (0-100%) |
+| `sensor.dweller_happiness` | Happiness level (0-100%) |
+| `sensor.dweller_mood` | Current mood name |
+| `sensor.dweller_mood_reason` | Why the mood changed |
+| `sensor.dweller_dominant_need` | Most urgent need (or "none") |
+
+### Buttons
+| Entity | Description |
+|--------|-------------|
+| `button.feed_buddy` | Feed the pet (-30 hunger) |
+| `button.pet_buddy` | Pet it (-25 loneliness) |
+| `button.play_buddy` | Play with it (-35 boredom) |
+
+### Select
+| Entity | Description |
+|--------|-------------|
+| `select.dweller_mood_override` | Manually set a mood |
+
+All entities are grouped under a single **Dweller** device in HA.
+
+## Dashboard Card
+
+A custom Lovelace card is included at [`dweller-card.js`](dweller-card.js).
+
+### Install
+
+1. Copy `dweller-card.js` to `/config/www/dweller-card.js` on your HA instance
+2. Add as a resource: **Settings → Dashboards → ⋮ → Resources → Add** with URL `/local/dweller-card.js` (JavaScript Module)
+3. Add to a dashboard:
+
+```yaml
+type: custom:dweller-card
+name: Buddy
+entity_prefix: dweller
+```
+
+The card shows:
+- Pet name and mood emoji
+- Current mood with reason
+- Alert banner when a need is critical
+- Need bars (hunger, boredom, loneliness, energy, happiness) with color coding
+- Feed / Pet / Play buttons
+
 ## Cost
 
 - **Haiku filter**: ~100-300 calls/day × $0.001 = $0.10-0.30/day
