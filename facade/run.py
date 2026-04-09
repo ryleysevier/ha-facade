@@ -543,6 +543,47 @@ def parse_json_response(text: str) -> dict:
             return json.loads(match.group())
         return {}
 
+def install_lovelace_card():
+    """Copy the dashboard card to /config/www/ and register as a Lovelace resource."""
+    import shutil
+
+    src = "/dweller-card.js"
+    dst_dir = "/config/www"
+    dst = f"{dst_dir}/dweller-card.js"
+    resource_url = "/local/dweller-card.js"
+
+    # Copy JS file
+    try:
+        os.makedirs(dst_dir, exist_ok=True)
+        shutil.copy2(src, dst)
+        log.info("Installed dweller-card.js to %s", dst)
+    except Exception as e:
+        log.error("Failed to copy dashboard card: %s", e)
+        return
+
+    # Register as Lovelace resource if not already registered
+    headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
+    try:
+        resp = requests.get(f"{HA_REST_URL}/lovelace/resources", headers=headers, timeout=10)
+        if resp.status_code == 200:
+            resources = resp.json()
+            already = any(r.get("url") == resource_url for r in resources)
+            if not already:
+                requests.post(
+                    f"{HA_REST_URL}/lovelace/resources",
+                    headers={**headers, "Content-Type": "application/json"},
+                    json={"url": resource_url, "res_type": "module"},
+                    timeout=10,
+                )
+                log.info("Registered Lovelace resource: %s", resource_url)
+            else:
+                log.debug("Lovelace resource already registered")
+        else:
+            log.warning("Could not check Lovelace resources (HTTP %d) — card may need manual registration", resp.status_code)
+    except Exception as e:
+        log.warning("Could not register Lovelace resource: %s — card may need manual registration", e)
+
+
 def get_ha_states() -> list[dict]:
     headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
     try:
@@ -722,6 +763,7 @@ def run():
     import websocket as ws_lib
 
     log.info("Facade starting — %s is waking up", PET_NAME)
+    install_lovelace_card()
     connect_mqtt()
     publish_discovery()
     publish_status()

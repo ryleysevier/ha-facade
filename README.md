@@ -106,13 +106,7 @@ All entities are grouped under a single **Dweller** device in HA.
 
 ## Dashboard Card
 
-A custom Lovelace card is included at [`dweller-card.js`](dweller-card.js).
-
-### Install
-
-1. Copy `dweller-card.js` to `/config/www/dweller-card.js` on your HA instance
-2. Add as a resource: **Settings → Dashboards → ⋮ → Resources → Add** with URL `/local/dweller-card.js` (JavaScript Module)
-3. Add to a dashboard:
+The add-on automatically installs a custom Lovelace card on startup — copies the JS to `/config/www/` and registers it as a resource. Just add it to a dashboard:
 
 ```yaml
 type: custom:dweller-card
