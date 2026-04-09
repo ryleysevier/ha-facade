@@ -17,7 +17,7 @@ HA Event Bus → Haiku Filter → Opus/Sonnet Brain → MQTT → ESP32 Tamagotch
 ## Installation
 
 1. Add this repository to Home Assistant: **Settings → Add-ons → Add-on Store → ⋮ → Repositories**
-2. Add URL: `https://github.com/ryleysevier/facade`
+2. Add URL: `https://github.com/ryleysevier/ha-facade`
 3. Install the **Facade** add-on
 4. Configure your Anthropic API key and MQTT credentials
 5. Start the add-on
