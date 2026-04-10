@@ -1,6 +1,6 @@
 name: "Facade"
 description: "AI-powered facade pet that reacts to your smart home via MQTT"
-version: "1.2.2"
+version: "1.2.3"
 slug: "facade"
 url: "https://github.com/ryleysevier/ha-facade"
 image: "ghcr.io/ryleysevier/ha-facade/{arch}"
@@ -29,10 +29,10 @@ options:
   haiku_model: "claude-haiku-4-5-20251001"
   brain_model: "claude-sonnet-4-5-20241022"
   need_decay_rates:
-    hunger: 0.014
-    boredom: 0.055
-    loneliness: 0.028
-    energy: -0.008
+    hunger: 0.0015
+    boredom: 0.0012
+    loneliness: 0.0016
+    energy: -0.0016
   watched_domains:
     - binary_sensor
     - climate

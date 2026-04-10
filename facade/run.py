@@ -53,10 +53,10 @@ MAX_CHANGES_PER_HOUR = OPTIONS.get("max_changes_per_hour", 12)
 QUIET_START = OPTIONS.get("quiet_hours_start", "23:00")
 QUIET_END = OPTIONS.get("quiet_hours_end", "06:00")
 NEED_DECAY = OPTIONS.get("need_decay_rates", {
-    "hunger": 0.014,
-    "boredom": 0.055,
-    "loneliness": 0.028,
-    "energy": -0.008,  # energy drains slowly
+    "hunger": 0.0015,     # ~3 feeds/day to maintain
+    "boredom": 0.0012,    # ~2 play sessions/day
+    "loneliness": 0.0016, # ~4 pets/day
+    "energy": -0.0016,    # drains over ~17h active hours
 })
 
 # ---------------------------------------------------------------------------
