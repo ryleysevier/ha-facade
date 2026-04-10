@@ -14,6 +14,7 @@ import paho.mqtt.client as mqtt
 import requests
 
 from need_modifiers import match_event as match_need_modifiers, aggregate_needs
+from web import start_web_server, load_entity_config, entity_config as web_entity_config
 
 # ---------------------------------------------------------------------------
 # Config
@@ -532,10 +533,17 @@ Respond ONLY with the JSON face command, no other text."""
 # ---------------------------------------------------------------------------
 
 def should_watch(entity_id: str) -> bool:
-    if entity_id in IGNORED_ENTITIES:
-        return False
     # Ignore our own MQTT Discovery entities
     if "facade" in entity_id or "dweller" in entity_id:
+        return False
+    # Check web UI entity config (takes priority)
+    web_cfg = load_entity_config()
+    if entity_id in web_cfg.get("ignored", []):
+        return False
+    if entity_id in web_cfg.get("watched", []):
+        return True
+    # Check add-on options
+    if entity_id in IGNORED_ENTITIES:
         return False
     if entity_id in WATCHED_ENTITIES:
         return True
@@ -777,6 +785,10 @@ def run():
         return
 
     log.info("Facade starting — %s is waking up", PET_NAME)
+
+    # Start config web UI
+    web_thread = threading.Thread(target=start_web_server, daemon=True)
+    web_thread.start()
 
     # Wait for HA Core to be ready before connecting
     wait_for_ha()

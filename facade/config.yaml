@@ -1,6 +1,6 @@
 name: "Facade"
 description: "AI-powered facade pet that reacts to your smart home via MQTT"
-version: "1.1.1"
+version: "1.2.0"
 slug: "facade"
 url: "https://github.com/ryleysevier/ha-facade"
 image: "ghcr.io/ryleysevier/ha-facade/{arch}"
@@ -73,6 +73,10 @@ schema:
   ignored_entities:
     - "str"
   log_level: list(trace|debug|info|notice|warning|error|fatal)
+ingress: true
+ingress_port: 8099
+panel_icon: "mdi:emoticon-outline"
+panel_title: "Facade"
 init: false
 startup: "application"
 boot: "auto"

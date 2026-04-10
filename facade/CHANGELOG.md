@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0
+
+- **Entity picker web UI** — ingress-based config panel accessible from the HA sidebar. Browse all HA entities by domain, search, and toggle watch/ignore per entity. No more typing entity IDs manually.
+- Ingress enabled with sidebar icon (`mdi:emoticon-outline`)
+- Entity config persisted in `/data/entity_config.json`, takes priority over add-on options
+- Web UI config feeds into `should_watch()` filter
+
 ## 1.1.1
 
 - **Event-based need modifiers** — 60+ smart home events now affect pet needs (not just face changes). Someone arriving home lowers loneliness, music playing reduces boredom, thunderstorms scare the pet, etc.
