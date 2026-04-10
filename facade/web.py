@@ -431,8 +431,19 @@ async function exportData() {
     const resp = await fetch("./api/export", {method: "POST"});
     const data = await resp.json();
     if (data.ok) {
-      btn.textContent = "Export complete!";
-      setTimeout(() => { btn.textContent = "Export HA Data"; btn.disabled = false; }, 3000);
+      btn.textContent = "Downloading...";
+      // Poll until export file is ready, then download
+      const poll = async () => {
+        const check = await fetch("./api/export/download");
+        if (check.ok) {
+          window.open("./api/export/download", "_blank");
+          btn.textContent = "Export HA Data";
+          btn.disabled = false;
+        } else {
+          setTimeout(poll, 2000);
+        }
+      };
+      setTimeout(poll, 3000);
     } else {
       btn.textContent = "Export failed";
       btn.disabled = false;
@@ -495,7 +506,6 @@ class ConfigHandler(BaseHTTPRequestHandler):
             unmatched = _escalation.get_unmatched_events() if _escalation else []
             self._json_response({"rules": rules, "budget": budget, "unmatched": unmatched})
         elif self.path.endswith("/api/rules/download"):
-            import os
             path = "/data/reactions.json"
             if os.path.exists(path):
                 self.send_response(200)
@@ -506,6 +516,17 @@ class ConfigHandler(BaseHTTPRequestHandler):
                     self.wfile.write(f.read())
             else:
                 self._json_response({"error": "No reactions.json found"}, 404)
+        elif self.path.endswith("/api/export/download"):
+            path = "/data/ha_export.json"
+            if os.path.exists(path):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Disposition", "attachment; filename=ha_export.json")
+                self.end_headers()
+                with open(path, "rb") as f:
+                    self.wfile.write(f.read())
+            else:
+                self._json_response({"error": "No export found. Run Export HA Data first."}, 404)
         elif self.path.endswith("/rules"):
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
