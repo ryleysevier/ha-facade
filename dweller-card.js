@@ -19,16 +19,27 @@ class DwellerCard extends HTMLElement {
     if (!this._config) return;
 
     const prefix = this._config.entity_prefix || "dweller";
-    const name = this._config.name || hass.states[`sensor.${prefix}_mood`]?.attributes?.friendly_name?.replace(" Mood", "") || "Dweller";
+    const name = this._config.name || "Dweller";
 
-    const mood = hass.states[`sensor.${prefix}_mood`]?.state || "unknown";
-    const moodReason = hass.states[`sensor.${prefix}_mood_reason`]?.state || "";
-    const hunger = Number(hass.states[`sensor.${prefix}_hunger`]?.state || 0);
-    const boredom = Number(hass.states[`sensor.${prefix}_boredom`]?.state || 0);
-    const loneliness = Number(hass.states[`sensor.${prefix}_loneliness`]?.state || 0);
-    const energy = Number(hass.states[`sensor.${prefix}_energy`]?.state || 0);
-    const happiness = Number(hass.states[`sensor.${prefix}_happiness`]?.state || 0);
-    const dominantNeed = hass.states[`sensor.${prefix}_dominant_need`]?.state || "none";
+    // Find entities by prefix, tolerating HA's _2/_3 suffixes
+    const find = (domain, key) => {
+      const exact = `${domain}.${prefix}_${key}`;
+      if (hass.states[exact]) return hass.states[exact];
+      // Search for suffixed variants
+      const match = Object.keys(hass.states).find(
+        e => e.startsWith(`${domain}.${prefix}_${key}`) && (e === exact || e.match(new RegExp(`^${domain}\\.${prefix}_${key}_\\d+$`)))
+      );
+      return match ? hass.states[match] : null;
+    };
+
+    const mood = find("sensor", "mood")?.state || "unknown";
+    const moodReason = find("sensor", "mood_reason")?.state || "";
+    const hunger = Number(find("sensor", "hunger")?.state || 0);
+    const boredom = Number(find("sensor", "boredom")?.state || 0);
+    const loneliness = Number(find("sensor", "loneliness")?.state || 0);
+    const energy = Number(find("sensor", "energy")?.state || 0);
+    const happiness = Number(find("sensor", "happiness")?.state || 0);
+    const dominantNeed = find("sensor", "dominant_need")?.state || "none";
 
     const moodEmoji = this._moodEmoji(mood);
 
@@ -170,9 +181,12 @@ class DwellerCard extends HTMLElement {
 
   _press(action) {
     const prefix = this._config.entity_prefix || "dweller";
-    this._hass.callService("button", "press", {
-      entity_id: `button.${action}_${this._config.name?.toLowerCase() || prefix}`,
-    });
+    // Find button entity tolerating _2/_3 suffixes
+    const base = `button.${prefix}_${action}`;
+    const entityId = Object.keys(this._hass.states).find(
+      e => e === base || e.match(new RegExp(`^button\\.${prefix}_${action}_\\d+$`))
+    ) || base;
+    this._hass.callService("button", "press", { entity_id: entityId });
   }
 
   _needBar(label, value, inverse) {
