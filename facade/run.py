@@ -762,7 +762,15 @@ startup_time = time.time()
 def run():
     import websocket as ws_lib
 
+    if not SUPERVISOR_TOKEN:
+        log.error("SUPERVISOR_TOKEN is empty — homeassistant_api may not be set in config.yaml")
+        return
+
     log.info("Facade starting — %s is waking up", PET_NAME)
+
+    # Wait for HA Core to be ready before connecting
+    wait_for_ha()
+
     install_lovelace_card()
     connect_mqtt()
     publish_discovery()
@@ -772,22 +780,54 @@ def run():
     decay_thread = threading.Thread(target=needs_loop, daemon=True)
     decay_thread.start()
 
+    # Connect to HA event bus
+    connect_ha_websocket()
+
+
+def wait_for_ha():
+    """Block until HA Core API is reachable."""
+    headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
+    while True:
+        try:
+            resp = requests.get(f"{HA_REST_URL}/", headers=headers, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                log.info("HA Core is ready (version %s)", data.get("version", "?"))
+                return
+            log.info("HA Core not ready (HTTP %d) — waiting 10s", resp.status_code)
+        except Exception as e:
+            log.info("HA Core not reachable (%s) — waiting 10s", e)
+        time.sleep(10)
+
+
+def connect_ha_websocket():
+    """Connect to HA websocket and subscribe to state_changed events."""
+    import websocket as ws_lib
+
     msg_id = 1
+    backoff = 5
 
     def on_open(ws):
         nonlocal msg_id
         log.info("WS connected to Home Assistant")
 
     def on_message(ws, message):
-        nonlocal msg_id
+        nonlocal msg_id, backoff
         data = json.loads(message)
+        msg_type = data.get("type", "")
 
-        if data.get("type") == "auth_required":
+        if msg_type == "auth_required":
             ws.send(json.dumps({"type": "auth", "access_token": SUPERVISOR_TOKEN}))
             return
 
-        if data.get("type") == "auth_ok":
-            log.info("Authenticated with HA")
+        if msg_type == "auth_invalid":
+            log.error("Auth rejected: %s", data.get("message", "unknown"))
+            ws.close()
+            return
+
+        if msg_type == "auth_ok":
+            backoff = 5  # reset backoff on successful auth
+            log.info("Authenticated with HA (version %s)", data.get("ha_version", "?"))
             ws.send(json.dumps({
                 "id": msg_id,
                 "type": "subscribe_events",
@@ -796,7 +836,7 @@ def run():
             msg_id += 1
             return
 
-        if data.get("type") == "event":
+        if msg_type == "event":
             event_data = data.get("event", {}).get("data", {})
             entity_id = event_data.get("entity_id", "")
             old = event_data.get("old_state", {})
@@ -824,8 +864,10 @@ def run():
         log.error("WS error: %s", error)
 
     def on_close(ws, close_status_code, close_msg):
-        log.warning("WS closed — reconnecting in 5s")
-        time.sleep(5)
+        nonlocal backoff
+        log.warning("WS closed (code=%s) — reconnecting in %ds", close_status_code, backoff)
+        time.sleep(backoff)
+        backoff = min(backoff * 2, 60)  # exponential backoff, max 60s
 
     while True:
         try:
@@ -838,8 +880,9 @@ def run():
             )
             wsapp.run_forever()
         except Exception as e:
-            log.error("WS connection failed: %s — retrying in 5s", e)
-            time.sleep(5)
+            log.error("WS connection failed: %s — retrying in %ds", e, backoff)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, 60)
 
 
 if __name__ == "__main__":

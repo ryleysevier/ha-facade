@@ -1,10 +1,14 @@
 # Facade
 
-A Home Assistant add-on that brings a dweller ESP32 to life — a virtual pet with needs, personality, and AI-powered reactions to your smart home.
+[![Add to Home Assistant](https://my.home-assistant.io/badges/supervisor_addon.svg)](https://my.home-assistant.io/redirect/supervisor_addon/?addon=47772387_facade&repository_url=https%3A%2F%2Fgithub.com%2Fryleysevier%2Fha-facade)
+[![GitHub Release](https://img.shields.io/github/v/release/ryleysevier/ha-facade)](https://github.com/ryleysevier/ha-facade/releases)
+[![License](https://img.shields.io/github/license/ryleysevier/ha-facade)](LICENSE)
+
+A Home Assistant add-on that brings a virtual pet to life — a dweller with needs, personality, and AI-powered reactions to your smart home events, displayed on an ESP32 screen via MQTT.
 
 ```
-HA Event Bus ──→ Haiku Filter ──→ Sonnet Brain ──→ MQTT ──→ ESP32
-                 "Worth it?"      "What face?"      dweller/mood
+HA Event Bus ──> Haiku Filter ──> Sonnet Brain ──> MQTT ──> ESP32
+                 "Worth it?"      "What face?"     dweller/mood
          ┌──────────────────────────────────────────────┐
          │  Pet State Engine                            │
          │  hunger · boredom · loneliness · energy      │
@@ -12,21 +16,26 @@ HA Event Bus ──→ Haiku Filter ──→ Sonnet Brain ──→ MQTT ──
          └──────────────────────────────────────────────┘
 ```
 
-## How it works
+## Features
 
-- **Needs engine** — hunger, boredom, loneliness, and energy decay over time. Happiness is derived from how well the pet's needs are met. Feed, pet, and play with it via MQTT commands.
-- **AI brain** — events are filtered through Claude Haiku (cheap, fast), then interesting ones are evaluated by Claude Sonnet with full home context + pet needs to pick the right face.
+- **Needs engine** — hunger, boredom, loneliness, and energy decay over time. Happiness is derived from how well the pet's needs are met.
+- **AI brain** — events are filtered through Claude Haiku (cheap, fast), then interesting ones are evaluated by Claude Sonnet with full home context + pet needs to pick the right face. AI is optional — a rules engine fallback is planned.
 - **Personality** — configurable name and traits that shape how the brain picks expressions.
+- **Interactions** — feed, pet, and play with your dweller via MQTT commands or HA buttons.
 - **Quiet hours** — no face changes during sleep hours.
 - **Rate limiting** — max face changes per hour prevents runaway API costs.
 - **Persistence** — pet state survives reboots.
 - **Idle moods** — if a need gets critical and nothing has happened for 30 min, the pet expresses it on its own.
+- **HA entities** — sensors, buttons, and selects auto-created via MQTT Discovery. No custom component needed.
+- **Dashboard card** — auto-installed Lovelace card with need bars, mood display, and interaction buttons.
 
 ## Installation
 
-1. Add this repository to Home Assistant: **Settings → Add-ons → Add-on Store → ⋮ → Repositories**
-2. Add URL: `https://github.com/ryleysevier/ha-facade`
-3. Install the **Facade** add-on
+Click the button above, or manually:
+
+1. Go to **Settings > Add-ons > Add-on Store > ⋮ > Repositories**
+2. Add: `https://github.com/ryleysevier/ha-facade`
+3. Install **Facade**
 4. Configure your Anthropic API key and MQTT credentials
 5. Start the add-on
 
@@ -54,31 +63,12 @@ HA Event Bus ──→ Haiku Filter ──→ Sonnet Brain ──→ MQTT ──
 | `ignored_entities` | `[]` | Entity IDs to never watch |
 | `log_level` | `info` | Logging level |
 
-## MQTT Topics
-
-### Published by the add-on
-
-| Topic | Payload | Description |
-|-------|---------|-------------|
-| `dweller/mood` | `{"name": "happy"}` | Preset mood name |
-| `dweller/pad` | `{"p": 80, "a": 50, "d": 50}` | PAD emotion values |
-| `dweller/face` | Full parametric JSON | Custom expression with icon/fx |
-| `dweller/status` | `{"name": "Buddy", "mood": "happy", "hunger": 23, ...}` | Pet status (retained) |
-
-### Commands (subscribe to interact)
-
-| Topic | Payload | Description |
-|-------|---------|-------------|
-| `dweller/command/feed` | *(any)* | Feed the pet (-30 hunger) |
-| `dweller/command/pet` | *(any)* | Pet it (-25 loneliness) |
-| `dweller/command/play` | *(any)* | Play with it (-35 boredom, -10 energy) |
-| `dweller/command/mood` | `{"name": "excited"}` | Override mood directly |
-
 ## Home Assistant Entities
 
-The add-on auto-creates entities via MQTT Discovery. No custom component needed.
+Auto-created via MQTT Discovery on startup. All grouped under a **Dweller** device.
 
 ### Sensors
+
 | Entity | Description |
 |--------|-------------|
 | `sensor.dweller_hunger` | Hunger level (0-100%) |
@@ -90,23 +80,18 @@ The add-on auto-creates entities via MQTT Discovery. No custom component needed.
 | `sensor.dweller_mood_reason` | Why the mood changed |
 | `sensor.dweller_dominant_need` | Most urgent need (or "none") |
 
-### Buttons
+### Buttons & Select
+
 | Entity | Description |
 |--------|-------------|
 | `button.feed_buddy` | Feed the pet (-30 hunger) |
 | `button.pet_buddy` | Pet it (-25 loneliness) |
 | `button.play_buddy` | Play with it (-35 boredom) |
-
-### Select
-| Entity | Description |
-|--------|-------------|
 | `select.dweller_mood_override` | Manually set a mood |
-
-All entities are grouped under a single **Dweller** device in HA.
 
 ## Dashboard Card
 
-The add-on automatically installs a custom Lovelace card on startup — copies the JS to `/config/www/` and registers it as a resource. Just add it to a dashboard:
+Auto-installed on startup — the add-on copies `dweller-card.js` to `/config/www/` and registers it as a Lovelace resource. Add to any dashboard:
 
 ```yaml
 type: custom:dweller-card
@@ -114,15 +99,35 @@ name: Buddy
 entity_prefix: dweller
 ```
 
-The card shows:
-- Pet name and mood emoji
-- Current mood with reason
-- Alert banner when a need is critical
-- Need bars (hunger, boredom, loneliness, energy, happiness) with color coding
-- Feed / Pet / Play buttons
+Shows need bars with color-coded thresholds, mood emoji, critical need alerts, and feed/pet/play buttons.
+
+## MQTT Topics
+
+### Published by the add-on
+
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `dweller/mood` | `{"name": "happy"}` | Preset mood name |
+| `dweller/pad` | `{"p": 80, "a": 50, "d": 50}` | PAD emotion values |
+| `dweller/face` | Full parametric JSON | Custom expression with icon/fx |
+| `dweller/status` | `{"name": "Buddy", "mood": "happy", "hunger": 23, ...}` | Pet status (retained) |
+
+### Commands
+
+| Topic | Payload | Description |
+|-------|---------|-------------|
+| `dweller/command/feed` | *(any)* | Feed the pet |
+| `dweller/command/pet` | *(any)* | Pet it |
+| `dweller/command/play` | *(any)* | Play with it |
+| `dweller/command/mood` | `{"name": "excited"}` | Override mood (JSON) |
+| `dweller/command/mood_select` | `excited` | Override mood (string) |
 
 ## Cost
 
-- **Haiku filter**: ~100-300 calls/day × $0.001 = $0.10-0.30/day
-- **Brain**: ~5-20 calls/day × $0.01-0.05 = $0.05-1.00/day
+- **Haiku filter**: ~100-300 calls/day x $0.001 = $0.10-0.30/day
+- **Brain**: ~5-20 calls/day x $0.01-0.05 = $0.05-1.00/day
 - **Total**: ~$5-40/month
+
+## License
+
+MIT
