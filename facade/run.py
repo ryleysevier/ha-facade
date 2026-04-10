@@ -548,7 +548,8 @@ def install_lovelace_card():
     import shutil
 
     src = "/dweller-card.js"
-    dst_dir = "/config/www"
+    # homeassistant_config map mounts HA config at /homeassistant
+    dst_dir = "/homeassistant/www"
     dst = f"{dst_dir}/dweller-card.js"
     resource_url = "/local/dweller-card.js"
 
