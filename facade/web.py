@@ -118,7 +118,10 @@ INDEX_HTML = """<!DOCTYPE html>
 </style>
 </head>
 <body>
-  <h1>Entity Configuration</h1>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+    <h1>Entity Configuration</h1>
+    <button onclick="history.back()" style="padding:8px 16px; border-radius:6px; border:1px solid #444; background:#2a2a2a; color:#e0e0e0; cursor:pointer; font-size:0.85em;">← Back to HA</button>
+  </div>
   <p class="subtitle">Choose which entities your dweller watches or ignores</p>
   <input class="search" type="text" placeholder="Search entities..." id="search">
   <div class="tabs">
