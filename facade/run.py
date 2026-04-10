@@ -297,52 +297,53 @@ def connect_mqtt():
 # ---------------------------------------------------------------------------
 
 DISCOVERY_PREFIX = "homeassistant"
+DEVICE_ID = f"facade_{PET_NAME.lower().replace(' ', '_')}"
 DEVICE_INFO = {
-    "identifiers": ["facade_dweller"],
-    "name": "Dweller",
+    "identifiers": [DEVICE_ID],
+    "name": f"Facade ({PET_NAME})",
     "manufacturer": "Facade",
     "model": "AI Pet",
-    "sw_version": "1.0.0",
+    "sw_version": "1.0.9",
 }
 
 def publish_discovery():
     """Publish MQTT discovery configs so HA auto-creates entities."""
     status_topic = f"{TOPIC_PREFIX}/status"
-    obj_id = TOPIC_PREFIX
+    # Use stable unique IDs anchored to device + entity key
+    uid_prefix = DEVICE_ID
 
     # --- Sensors ---
     sensors = [
-        ("hunger", "Hunger", "mdi:food-drumstick", None),
-        ("boredom", "Boredom", "mdi:emoticon-neutral-outline", None),
-        ("loneliness", "Loneliness", "mdi:account-heart-outline", None),
-        ("energy", "Energy", "mdi:lightning-bolt", None),
-        ("happiness", "Happiness", "mdi:emoticon-happy-outline", None),
+        ("hunger", "Hunger", "mdi:food-drumstick"),
+        ("boredom", "Boredom", "mdi:emoticon-neutral-outline"),
+        ("loneliness", "Loneliness", "mdi:account-heart-outline"),
+        ("energy", "Energy", "mdi:lightning-bolt"),
+        ("happiness", "Happiness", "mdi:emoticon-happy-outline"),
     ]
-    for key, name, icon, device_class in sensors:
-        config = {
-            "name": f"{PET_NAME} {name}",
-            "unique_id": f"{obj_id}_{key}",
-            "state_topic": status_topic,
-            "value_template": f"{{{{ value_json.{key} }}}}",
-            "unit_of_measurement": "%",
-            "icon": icon,
-            "state_class": "measurement",
-            "device": DEVICE_INFO,
-        }
-        if device_class:
-            config["device_class"] = device_class
+    for key, name, icon in sensors:
         mqtt_client.publish(
-            f"{DISCOVERY_PREFIX}/sensor/{obj_id}_{key}/config",
-            json.dumps(config),
+            f"{DISCOVERY_PREFIX}/sensor/{uid_prefix}_{key}/config",
+            json.dumps({
+                "name": name,
+                "unique_id": f"{uid_prefix}_{key}",
+                "object_id": f"{uid_prefix}_{key}",
+                "state_topic": status_topic,
+                "value_template": f"{{{{ value_json.{key} }}}}",
+                "unit_of_measurement": "%",
+                "icon": icon,
+                "state_class": "measurement",
+                "device": DEVICE_INFO,
+            }),
             retain=True,
         )
 
     # Mood sensor (text)
     mqtt_client.publish(
-        f"{DISCOVERY_PREFIX}/sensor/{obj_id}_mood/config",
+        f"{DISCOVERY_PREFIX}/sensor/{uid_prefix}_mood/config",
         json.dumps({
-            "name": f"{PET_NAME} Mood",
-            "unique_id": f"{obj_id}_mood",
+            "name": "Mood",
+            "unique_id": f"{uid_prefix}_mood",
+            "object_id": f"{uid_prefix}_mood",
             "state_topic": status_topic,
             "value_template": "{{ value_json.mood }}",
             "icon": "mdi:emoticon-outline",
@@ -353,10 +354,11 @@ def publish_discovery():
 
     # Mood reason sensor
     mqtt_client.publish(
-        f"{DISCOVERY_PREFIX}/sensor/{obj_id}_mood_reason/config",
+        f"{DISCOVERY_PREFIX}/sensor/{uid_prefix}_mood_reason/config",
         json.dumps({
-            "name": f"{PET_NAME} Mood Reason",
-            "unique_id": f"{obj_id}_mood_reason",
+            "name": "Mood Reason",
+            "unique_id": f"{uid_prefix}_mood_reason",
+            "object_id": f"{uid_prefix}_mood_reason",
             "state_topic": status_topic,
             "value_template": "{{ value_json.mood_reason }}",
             "icon": "mdi:thought-bubble-outline",
@@ -367,10 +369,11 @@ def publish_discovery():
 
     # Dominant need sensor
     mqtt_client.publish(
-        f"{DISCOVERY_PREFIX}/sensor/{obj_id}_dominant_need/config",
+        f"{DISCOVERY_PREFIX}/sensor/{uid_prefix}_dominant_need/config",
         json.dumps({
-            "name": f"{PET_NAME} Dominant Need",
-            "unique_id": f"{obj_id}_dominant_need",
+            "name": "Dominant Need",
+            "unique_id": f"{uid_prefix}_dominant_need",
+            "object_id": f"{uid_prefix}_dominant_need",
             "state_topic": status_topic,
             "value_template": "{{ value_json.dominant_need | default('none', true) }}",
             "icon": "mdi:alert-circle-outline",
@@ -387,10 +390,11 @@ def publish_discovery():
     ]
     for key, name, icon in buttons:
         mqtt_client.publish(
-            f"{DISCOVERY_PREFIX}/button/{obj_id}_{key}/config",
+            f"{DISCOVERY_PREFIX}/button/{uid_prefix}_{key}/config",
             json.dumps({
-                "name": f"{name} {PET_NAME}",
-                "unique_id": f"{obj_id}_{key}",
+                "name": f"{name}",
+                "unique_id": f"{uid_prefix}_{key}",
+                "object_id": f"{uid_prefix}_{key}",
                 "command_topic": f"{TOPIC_PREFIX}/{key}",
                 "icon": icon,
                 "device": DEVICE_INFO,
@@ -409,10 +413,11 @@ def publish_discovery():
         "celebration", "gaming", "stargazing", "meditation",
     ]
     mqtt_client.publish(
-        f"{DISCOVERY_PREFIX}/select/{obj_id}_mood_override/config",
+        f"{DISCOVERY_PREFIX}/select/{uid_prefix}_mood_override/config",
         json.dumps({
-            "name": f"{PET_NAME} Mood Override",
-            "unique_id": f"{obj_id}_mood_override",
+            "name": "Mood Override",
+            "unique_id": f"{uid_prefix}_mood_override",
+            "object_id": f"{uid_prefix}_mood_override",
             "command_topic": f"{TOPIC_PREFIX}/mood_select",
             "options": mood_options,
             "icon": "mdi:emoticon-cool-outline",
@@ -528,7 +533,7 @@ def should_watch(entity_id: str) -> bool:
     if entity_id in IGNORED_ENTITIES:
         return False
     # Ignore our own MQTT Discovery entities
-    if TOPIC_PREFIX in entity_id:
+    if "facade" in entity_id or "dweller" in entity_id:
         return False
     if entity_id in WATCHED_ENTITIES:
         return True

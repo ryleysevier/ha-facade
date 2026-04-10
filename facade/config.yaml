@@ -1,6 +1,6 @@
 name: "Facade"
 description: "AI-powered facade pet that reacts to your smart home via MQTT"
-version: "1.0.9"
+version: "1.1.0"
 slug: "facade"
 url: "https://github.com/ryleysevier/ha-facade"
 image: "ghcr.io/ryleysevier/ha-facade/{arch}"
