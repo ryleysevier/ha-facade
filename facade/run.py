@@ -3,7 +3,6 @@
 import json
 import logging
 import os
-import re
 import threading
 import time
 from collections import deque
@@ -38,20 +37,9 @@ MQTT_HOST = OPTIONS.get("mqtt_host", "core-mosquitto")
 MQTT_PORT = OPTIONS.get("mqtt_port", 1883)
 MQTT_USER = OPTIONS.get("mqtt_user", "facade")
 MQTT_PASSWORD = OPTIONS.get("mqtt_password", "")
-DEBOUNCE_SECONDS = OPTIONS.get("debounce_seconds", 30)
-HAIKU_MODEL = OPTIONS.get("haiku_model", "claude-haiku-4-5-20251001")
-BRAIN_MODEL = OPTIONS.get("brain_model", "claude-sonnet-4-5-20241022")
-WATCHED_DOMAINS = set(OPTIONS.get("watched_domains", [
-    "binary_sensor", "climate", "cover", "light",
-    "media_player", "person", "sensor", "sun", "zone",
-]))
-WATCHED_ENTITIES = set(OPTIONS.get("watched_entities", []))
-IGNORED_ENTITIES = set(OPTIONS.get("ignored_entities", []))
 LOG_LEVEL = OPTIONS.get("log_level", "info").upper()
 TOPIC_PREFIX = OPTIONS.get("mqtt_topic_prefix", "facade")
 PET_NAME = OPTIONS.get("pet_name", "Buddy")
-PERSONALITY = OPTIONS.get("personality", "curious, empathetic, slightly dramatic")
-MAX_CHANGES_PER_HOUR = OPTIONS.get("max_changes_per_hour", 12)
 QUIET_START = OPTIONS.get("quiet_hours_start", "23:00")
 QUIET_END = OPTIONS.get("quiet_hours_end", "06:00")
 NEED_DECAY = OPTIONS.get("need_decay_rates", {
@@ -205,7 +193,7 @@ class PetState:
         now = time.time()
         cutoff = now - 3600
         self.face_changes_this_hour = [t for t in self.face_changes_this_hour if t > cutoff]
-        return len(self.face_changes_this_hour) < MAX_CHANGES_PER_HOUR
+        return len(self.face_changes_this_hour) < 60
 
     def record_face_change(self):
         self.face_changes_this_hour.append(time.time())
@@ -305,7 +293,7 @@ def on_mqtt_message(client, userdata, msg):
             if ai_client:
                 from batch_learn import run_batch_learning
                 threading.Thread(
-                    target=lambda: (run_batch_learning(ai_client, BRAIN_MODEL), rules_engine.reload()),
+                    target=lambda: (run_batch_learning(ai_client), rules_engine.reload()),
                     daemon=True,
                 ).start()
                 log.info("Batch learning triggered via MQTT command")
@@ -498,70 +486,6 @@ def publish_face(face_command: dict, reason: str = ""):
     pet.save()
 
 # ---------------------------------------------------------------------------
-# Prompts
-# ---------------------------------------------------------------------------
-
-HAIKU_SYSTEM = """You are a filter for a virtual pet dweller that lives on a small round screen.
-Your job is to decide if a Home Assistant event is interesting enough to change
-the pet's facial expression.
-
-Rules:
-- Say YES to events that affect the home's mood or vibe (someone arriving/leaving,
-  weather changes, alarms, unusual sensor readings, time-of-day transitions)
-- Say YES to events that are emotionally significant (doors locking at night,
-  energy spikes, temperature extremes, motion in unusual places)
-- Say NO to routine/boring events (lights toggling, minor sensor fluctuations,
-  repetitive automations, state changes with no emotional significance)
-- Say NO if the same type of event happened recently (avoid repetition)
-- When in doubt, say NO — the pet should change expression ~5-20 times per day,
-  not every minute
-
-Respond ONLY with JSON, no other text:
-{"express": true, "reason": "brief reason"} or {"express": false}"""
-
-def brain_system_prompt() -> str:
-    return f"""You are the brain of a virtual pet named {PET_NAME}. {PET_NAME} is {PERSONALITY}.
-{PET_NAME} lives on a small round screen with two expressive cartoon eyes and reacts to
-what's happening in the home.
-
-You control the face with these parameters:
-
-OPTION 1 — Preset mood name (simplest):
-{{"name": "<mood_name>"}}
-
-Available moods:
-- Basic: happy, sad, angry, scared, surprised, content, excited, bored, curious, love,
-  disgusted, jealous, proud, guilty, hopeful, nervous, peaceful, mischievous, confused, determined
-- Home: cozy_evening, morning_energy, too_hot, too_cold, perfect_temp, door_unlocked,
-  door_locked, alarm_triggered, music_playing, cooking_time, battery_low, internet_down,
-  smoke_detected, package_here, mail_arrived
-- Needs: hungry, tired, exhausted, playful, lonely, calm, zen, napping, hyper
-- Events: doorbell, someone_arrived, someone_left, owner_home, owner_away, party_mode,
-  rain_detected, storm_warning, sunny, thunderstorm, motion_detected, water_leak
-- Time: dawn, morning_coffee, noon, afternoon_slump, golden_hour, movie_night, midnight, deep_night
-- Special: christmas, halloween, birthday, fireworks, meditation, gaming, stargazing, celebration
-
-OPTION 2 — Raw PAD values:
-{{"p": <-100 to 100>, "a": <-100 to 100>, "d": <-100 to 100>}}
-P = Pleasure, A = Arousal, D = Dominance
-
-OPTION 3 — Full parametric:
-{{"p": 80, "a": 50, "d": 50, "hue": 330, "icon": "heart", "fx": "pupil_replace", "color": "F800"}}
-hue: -1=auto, 0-360 | icon: heart,star,note,question,cloud,drop,snow,warn,mug,bell,box,bolt,zzz,party
-fx: pupil_replace,float_above,rain_down,orbit,eye_sparkle,bottom_status,bg_fill,side_peek,pulse_center,tear_drop
-
-Guidelines:
-- {PET_NAME}'s needs affect their expression — a hungry pet looks sadder, a bored pet looks restless
-- Match the face to the HOME's emotional state AND the pet's internal state
-- Consider time of day — late night should be sleepy
-- Consider accumulation — multiple negative events build frustration
-- If needs are critical (>80), the face should reflect that regardless of events
-- Be creative with full parametric mode for unique moments
-- Prefer preset mood names when one fits; use PAD for nuance
-
-Respond ONLY with the JSON face command, no other text."""
-
-# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -569,29 +493,15 @@ def should_watch(entity_id: str) -> bool:
     # Ignore our own MQTT Discovery entities
     if "facade" in entity_id or "dweller" in entity_id:
         return False
-    # Check web UI entity config (takes priority)
+    # Check web UI entity config
     web_cfg = load_entity_config()
     if entity_id in web_cfg.get("ignored", []):
         return False
-    if entity_id in web_cfg.get("watched", []):
-        return True
-    # Check add-on options
-    if entity_id in IGNORED_ENTITIES:
-        return False
-    if entity_id in WATCHED_ENTITIES:
-        return True
-    domain = entity_id.split(".")[0]
-    return domain in WATCHED_DOMAINS
-
-def parse_json_response(text: str) -> dict:
-    text = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        match = re.search(r"\{[^}]+\}", text)
-        if match:
-            return json.loads(match.group())
-        return {}
+    # If watched list is configured, only allow those
+    if web_cfg.get("watched"):
+        return entity_id in web_cfg["watched"]
+    # Otherwise let everything through — rules engine decides what's interesting
+    return True
 
 def install_lovelace_card():
     """Copy the dashboard card to /config/www/ and register as a Lovelace resource."""
@@ -635,61 +545,6 @@ def install_lovelace_card():
         log.warning("Could not register Lovelace resource: %s — card may need manual registration", e)
 
 
-def get_ha_states() -> list[dict]:
-    headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
-    try:
-        resp = requests.get(f"{HA_REST_URL}/states", headers=headers, timeout=10)
-        resp.raise_for_status()
-        return resp.json()
-    except Exception as e:
-        log.error("Failed to fetch HA states: %s", e)
-        return []
-
-def build_context(event: dict, states: list[dict]) -> str:
-    now = datetime.now()
-    people = [
-        s.get("attributes", {}).get("friendly_name", s["entity_id"])
-        for s in states
-        if s["entity_id"].startswith("person.") and s["state"] == "home"
-    ]
-    doors = [
-        f"{s.get('attributes', {}).get('friendly_name', s['entity_id'])}: {s['state']}"
-        for s in states
-        if ("door" in s["entity_id"] or "lock" in s["entity_id"])
-        and (s["entity_id"].startswith("binary_sensor.") or s["entity_id"].startswith("lock."))
-    ][:5]
-    weather = next(
-        (s["state"] for s in states if s["entity_id"].startswith("weather.")), "unknown"
-    )
-    recent_str = "\n".join(
-        f"- {e['name']}: {e['from']} -> {e['to']} at {e['time']}"
-        for e in pet.recent_events
-    ) or "(none)"
-
-    return f"""TRIGGERING EVENT:
-{event['name']} ({event['entity_id']}) changed from "{event['from']}" to "{event['to']}"
-Reason for expression: {event['reason']}
-
-CURRENT CONTEXT:
-Time: {now.strftime('%-I:%M %p')}
-Day: {now.strftime('%A, %B %-d %Y')}
-
-{PET_NAME}'s needs:
-{pet.needs_summary()}
-Dominant need: {pet.dominant_need() or 'none — feeling good'}
-
-Recent events:
-{recent_str}
-
-Sensor snapshot:
-- Weather: {weather}
-- People home: {', '.join(people) or 'nobody'}
-- Doors: {', '.join(doors) or 'unknown'}
-
-{PET_NAME}'s current mood: {pet.mood} (since {int((time.time() - pet.mood_set_at) / 60)} min ago)
-
-What face should {PET_NAME} show?"""
-
 # ---------------------------------------------------------------------------
 # Pipeline
 # ---------------------------------------------------------------------------
@@ -699,7 +554,7 @@ def handle_event(entity_id: str, old_state: str, new_state: str, friendly_name: 
         log.debug("Quiet hours — skipping %s", entity_id)
         return
     if not pet.can_change_face():
-        log.info("Rate limit hit (%d/hr) — skipping %s", MAX_CHANGES_PER_HOUR, entity_id)
+        log.info("Rate limit hit (%d/hr) — skipping %s", 60, entity_id)
         return
 
     # --- Rules engine (instant, zero tokens) ---

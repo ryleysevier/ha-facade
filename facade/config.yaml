@@ -21,13 +21,8 @@ options:
   mqtt_password: ""
   mqtt_topic_prefix: "facade"
   pet_name: "Buddy"
-  personality: "curious, empathetic, slightly dramatic"
-  debounce_seconds: 30
-  max_changes_per_hour: 12
   quiet_hours_start: "23:00"
   quiet_hours_end: "06:00"
-  haiku_model: "claude-haiku-4-5-20251001"
-  brain_model: "claude-sonnet-4-5-20241022"
   escalation_enabled: true
   escalation_budget_per_day: 10
   escalation_model: "claude-opus-4-20250514"
@@ -36,18 +31,6 @@ options:
     boredom: 0.0012
     loneliness: 0.0016
     energy: -0.0016
-  watched_domains:
-    - binary_sensor
-    - climate
-    - cover
-    - light
-    - media_player
-    - person
-    - sensor
-    - sun
-    - zone
-  watched_entities: []
-  ignored_entities: []
   log_level: "info"
 schema:
   anthropic_api_key: "password"
@@ -57,13 +40,8 @@ schema:
   mqtt_password: "password"
   mqtt_topic_prefix: "str"
   pet_name: "str"
-  personality: "str"
-  debounce_seconds: "int"
-  max_changes_per_hour: "int"
   quiet_hours_start: "str"
   quiet_hours_end: "str"
-  haiku_model: "str"
-  brain_model: "str"
   escalation_enabled: "bool"
   escalation_budget_per_day: "int"
   escalation_model: "str"
@@ -72,12 +50,6 @@ schema:
     boredom: "float"
     loneliness: "float"
     energy: "float"
-  watched_domains:
-    - "str"
-  watched_entities:
-    - "str"
-  ignored_entities:
-    - "str"
   log_level: list(trace|debug|info|notice|warning|error|fatal)
 ingress: true
 ingress_port: 8099
