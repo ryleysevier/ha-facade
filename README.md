@@ -8,7 +8,7 @@ A Home Assistant add-on that brings a virtual pet to life — a dweller with nee
 
 ```
 HA Event Bus ──> Haiku Filter ──> Sonnet Brain ──> MQTT ──> ESP32
-                 "Worth it?"      "What face?"     dweller/mood
+                 "Worth it?"      "What face?"     facade/mood
          ┌──────────────────────────────────────────────┐
          │  Pet State Engine                            │
          │  hunger · boredom · loneliness · energy      │
@@ -48,7 +48,7 @@ Click the button above, or manually:
 | `mqtt_port` | `1883` | MQTT broker port |
 | `mqtt_user` | `facade` | MQTT username |
 | `mqtt_password` | | MQTT password |
-| `mqtt_topic_prefix` | `dweller` | MQTT topic prefix |
+| `mqtt_topic_prefix` | `facade` | MQTT topic prefix |
 | `pet_name` | `Buddy` | Your pet's name |
 | `personality` | `curious, empathetic, slightly dramatic` | Personality traits for the AI brain |
 | `debounce_seconds` | `30` | Minimum seconds between AI evaluations |
@@ -103,24 +103,26 @@ Shows need bars with color-coded thresholds, mood emoji, critical need alerts, a
 
 ## MQTT Topics
 
+All topics use the configurable prefix (default: `facade`).
+
 ### Published by the add-on
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `dweller/mood` | `{"name": "happy"}` | Preset mood name |
-| `dweller/pad` | `{"p": 80, "a": 50, "d": 50}` | PAD emotion values |
-| `dweller/face` | Full parametric JSON | Custom expression with icon/fx |
-| `dweller/status` | `{"name": "Buddy", "mood": "happy", "hunger": 23, ...}` | Pet status (retained) |
+| `facade/mood` | `{"name": "happy"}` | Preset mood name |
+| `facade/pad` | `{"p": 80, "a": 50, "d": 50}` | PAD emotion values |
+| `facade/face` | Full parametric JSON | Custom expression with icon/fx |
+| `facade/status` | `{"name": "Buddy", "mood": "happy", "hunger": 23, ...}` | Pet status (retained) |
 
 ### Commands
 
 | Topic | Payload | Description |
 |-------|---------|-------------|
-| `dweller/command/feed` | *(any)* | Feed the pet |
-| `dweller/command/pet` | *(any)* | Pet it |
-| `dweller/command/play` | *(any)* | Play with it |
-| `dweller/command/mood` | `{"name": "excited"}` | Override mood (JSON) |
-| `dweller/command/mood_select` | `excited` | Override mood (string) |
+| `facade/feed` | *(any)* | Feed the pet |
+| `facade/pet` | *(any)* | Pet it |
+| `facade/play` | *(any)* | Play with it |
+| `facade/mood_override` | `{"name": "excited"}` | Override mood (JSON) |
+| `facade/mood_select` | `excited` | Override mood (string) |
 
 ## Cost
 

@@ -1,6 +1,6 @@
 name: "Facade"
-description: "AI-powered dweller pet that reacts to your smart home via MQTT"
-version: "1.0.6"
+description: "AI-powered facade pet that reacts to your smart home via MQTT"
+version: "1.0.7"
 slug: "facade"
 url: "https://github.com/ryleysevier/ha-facade"
 image: "ghcr.io/ryleysevier/ha-facade/{arch}"
@@ -19,7 +19,7 @@ options:
   mqtt_port: 1883
   mqtt_user: "facade"
   mqtt_password: ""
-  mqtt_topic_prefix: "dweller"
+  mqtt_topic_prefix: "facade"
   pet_name: "Buddy"
   personality: "curious, empathetic, slightly dramatic"
   debounce_seconds: 30

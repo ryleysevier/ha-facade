@@ -43,7 +43,7 @@ WATCHED_DOMAINS = set(OPTIONS.get("watched_domains", [
 WATCHED_ENTITIES = set(OPTIONS.get("watched_entities", []))
 IGNORED_ENTITIES = set(OPTIONS.get("ignored_entities", []))
 LOG_LEVEL = OPTIONS.get("log_level", "info").upper()
-TOPIC_PREFIX = OPTIONS.get("mqtt_topic_prefix", "dweller")
+TOPIC_PREFIX = OPTIONS.get("mqtt_topic_prefix", "facade")
 PET_NAME = OPTIONS.get("pet_name", "Buddy")
 PERSONALITY = OPTIONS.get("personality", "curious, empathetic, slightly dramatic")
 MAX_CHANGES_PER_HOUR = OPTIONS.get("max_changes_per_hour", 12)
@@ -257,23 +257,22 @@ def on_mqtt_message(client, userdata, msg):
     """Handle incoming MQTT commands (feed, pet, play)."""
     topic = msg.topic
     try:
-        if topic == f"{TOPIC_PREFIX}/command/feed":
+        if topic == f"{TOPIC_PREFIX}/feed":
             pet.feed()
             publish_status()
-            # trigger a grateful face
             publish_face({"name": "happy"}, reason="just got fed")
-        elif topic == f"{TOPIC_PREFIX}/command/pet":
+        elif topic == f"{TOPIC_PREFIX}/pet":
             pet.pet()
             publish_status()
             publish_face({"name": "love"}, reason="being petted")
-        elif topic == f"{TOPIC_PREFIX}/command/play":
+        elif topic == f"{TOPIC_PREFIX}/play":
             pet.play()
             publish_status()
             publish_face({"name": "excited"}, reason="playtime!")
-        elif topic == f"{TOPIC_PREFIX}/command/mood":
+        elif topic == f"{TOPIC_PREFIX}/mood_override":
             payload = json.loads(msg.payload.decode())
             publish_face(payload, reason="mood override")
-        elif topic == f"{TOPIC_PREFIX}/command/mood_select":
+        elif topic == f"{TOPIC_PREFIX}/mood_select":
             mood_name = msg.payload.decode().strip()
             publish_face({"name": mood_name}, reason="mood override")
     except Exception as e:
@@ -285,9 +284,9 @@ def connect_mqtt():
     while True:
         try:
             mqtt_client.connect(MQTT_HOST, MQTT_PORT)
-            mqtt_client.subscribe(f"{TOPIC_PREFIX}/command/#")
+            mqtt_client.subscribe(f"{TOPIC_PREFIX}/#")
             mqtt_client.loop_start()
-            log.info("MQTT connected to %s:%s, subscribed to %s/command/#", MQTT_HOST, MQTT_PORT, TOPIC_PREFIX)
+            log.info("MQTT connected to %s:%s, subscribed to %s/#", MQTT_HOST, MQTT_PORT, TOPIC_PREFIX)
             return
         except Exception as e:
             log.warning("MQTT connect failed: %s — retrying in 5s", e)
@@ -309,7 +308,7 @@ DEVICE_INFO = {
 def publish_discovery():
     """Publish MQTT discovery configs so HA auto-creates entities."""
     status_topic = f"{TOPIC_PREFIX}/status"
-    obj_id = "dweller"
+    obj_id = TOPIC_PREFIX
 
     # --- Sensors ---
     sensors = [
@@ -392,7 +391,7 @@ def publish_discovery():
             json.dumps({
                 "name": f"{name} {PET_NAME}",
                 "unique_id": f"{obj_id}_{key}",
-                "command_topic": f"{TOPIC_PREFIX}/command/{key}",
+                "command_topic": f"{TOPIC_PREFIX}/{key}",
                 "icon": icon,
                 "device": DEVICE_INFO,
             }),
@@ -414,7 +413,7 @@ def publish_discovery():
         json.dumps({
             "name": f"{PET_NAME} Mood Override",
             "unique_id": f"{obj_id}_mood_override",
-            "command_topic": f"{TOPIC_PREFIX}/command/mood_select",
+            "command_topic": f"{TOPIC_PREFIX}/mood_select",
             "options": mood_options,
             "icon": "mdi:emoticon-cool-outline",
             "device": DEVICE_INFO,
