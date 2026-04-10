@@ -299,7 +299,7 @@ def on_mqtt_message(client, userdata, msg):
             rules_engine.reload()
             log.info("Rules reloaded via MQTT command")
         elif topic == f"{TOPIC_PREFIX}/export":
-            threading.Thread(target=lambda: export_ha_data(WATCHED_DOMAINS, 30), daemon=True).start()
+            threading.Thread(target=lambda: export_ha_data(30), daemon=True).start()
             log.info("Data export triggered via MQTT command")
         elif topic == f"{TOPIC_PREFIX}/learn":
             if ai_client:

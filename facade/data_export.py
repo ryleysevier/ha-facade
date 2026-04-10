@@ -11,17 +11,20 @@ import requests
 
 log = logging.getLogger("facade.export")
 
-SUPERVISOR_TOKEN = os.environ.get("SUPERVISOR_TOKEN", "")
 HA_REST_URL = "http://supervisor/core/api"
 EXPORT_PATH = "/data/ha_export.json"
 
 
-def export_ha_data(watched_domains: set | None = None, days: int = 30) -> str:
+def export_ha_data(days: int = 30) -> str:
     """Export entity metadata + state history summary to a JSON file.
 
     Returns the path to the export file.
     """
-    headers = {"Authorization": f"Bearer {SUPERVISOR_TOKEN}"}
+    token = os.environ.get("SUPERVISOR_TOKEN", "")
+    if not token:
+        log.error("SUPERVISOR_TOKEN not available — cannot export")
+        return ""
+    headers = {"Authorization": f"Bearer {token}"}
 
     log.info("Starting HA data export (%d days)...", days)
 
@@ -29,20 +32,19 @@ def export_ha_data(watched_domains: set | None = None, days: int = 30) -> str:
     log.info("Fetching entity states...")
     try:
         resp = requests.get(f"{HA_REST_URL}/states", headers=headers, timeout=30)
+        log.info("States API returned HTTP %d, %d bytes", resp.status_code, len(resp.content))
         resp.raise_for_status()
         all_states = resp.json()
+        log.info("Got %d total entities from HA", len(all_states))
     except Exception as e:
         log.error("Failed to fetch states: %s", e)
         return ""
 
-    # Filter to watched domains
+    # Collect all entities (skip our own discovery entities)
     entities = []
     for s in all_states:
         eid = s["entity_id"]
         domain = eid.split(".")[0]
-        if watched_domains and domain not in watched_domains:
-            continue
-        # Skip our own entities
         if "facade" in eid or "dweller" in eid:
             continue
         entities.append({
