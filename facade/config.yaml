@@ -1,6 +1,6 @@
 name: "Facade"
 description: "AI-powered facade pet that reacts to your smart home via MQTT"
-version: "1.0.7"
+version: "1.0.8"
 slug: "facade"
 url: "https://github.com/ryleysevier/ha-facade"
 image: "ghcr.io/ryleysevier/ha-facade/{arch}"
@@ -27,7 +27,7 @@ options:
   quiet_hours_start: "23:00"
   quiet_hours_end: "06:00"
   haiku_model: "claude-haiku-4-5-20251001"
-  brain_model: "claude-sonnet-4-6-20250514"
+  brain_model: "claude-sonnet-4-5-20241022"
   need_decay_rates:
     hunger: 0.014
     boredom: 0.055

@@ -35,7 +35,7 @@ MQTT_USER = OPTIONS.get("mqtt_user", "facade")
 MQTT_PASSWORD = OPTIONS.get("mqtt_password", "")
 DEBOUNCE_SECONDS = OPTIONS.get("debounce_seconds", 30)
 HAIKU_MODEL = OPTIONS.get("haiku_model", "claude-haiku-4-5-20251001")
-BRAIN_MODEL = OPTIONS.get("brain_model", "claude-sonnet-4-6-20250514")
+BRAIN_MODEL = OPTIONS.get("brain_model", "claude-sonnet-4-5-20241022")
 WATCHED_DOMAINS = set(OPTIONS.get("watched_domains", [
     "binary_sensor", "climate", "cover", "light",
     "media_player", "person", "sensor", "sun", "zone",
@@ -526,6 +526,9 @@ Respond ONLY with the JSON face command, no other text."""
 
 def should_watch(entity_id: str) -> bool:
     if entity_id in IGNORED_ENTITIES:
+        return False
+    # Ignore our own MQTT Discovery entities
+    if TOPIC_PREFIX in entity_id:
         return False
     if entity_id in WATCHED_ENTITIES:
         return True
