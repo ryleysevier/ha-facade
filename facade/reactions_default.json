@@ -1,0 +1,311 @@
+{
+  "version": 1,
+  "generated_by": "default",
+  "rules": [
+    {
+      "id": "person_arrives",
+      "description": "Someone came home",
+      "priority": 80,
+      "enabled": true,
+      "match": {"entity_pattern": "person.*", "from_state": "!home", "to_state": "home"},
+      "face": {"name": "someone_arrived"},
+      "needs": {"loneliness": -30, "happiness": 15, "boredom": -10},
+      "cooldown_seconds": 300
+    },
+    {
+      "id": "person_leaves",
+      "description": "Someone left the house",
+      "priority": 80,
+      "enabled": true,
+      "match": {"entity_pattern": "person.*", "from_state": "home", "to_state": "!home"},
+      "face": {"name": "someone_left"},
+      "needs": {"loneliness": 20, "happiness": -10},
+      "cooldown_seconds": 300
+    },
+    {
+      "id": "door_opened",
+      "description": "A door opened",
+      "priority": 40,
+      "enabled": true,
+      "match": {"entity_pattern": "binary_sensor.*door*", "from_state": "off", "to_state": "on"},
+      "face": {"name": "curious"},
+      "needs": {"boredom": -5, "happiness": 3},
+      "cooldown_seconds": 120
+    },
+    {
+      "id": "door_locked",
+      "description": "Doors locked — safe and cozy",
+      "priority": 30,
+      "enabled": true,
+      "match": {"entity_pattern": "lock.*", "from_state": "unlocked", "to_state": "locked"},
+      "face": {"name": "door_locked"},
+      "needs": {"happiness": 3},
+      "cooldown_seconds": 300
+    },
+    {
+      "id": "garage_opened",
+      "description": "Garage door opening",
+      "priority": 50,
+      "enabled": true,
+      "match": {"entity_pattern": "cover.*garage*", "from_state": "closed", "to_state": "open"},
+      "face": {"name": "curious"},
+      "needs": {"boredom": -8, "happiness": 5},
+      "cooldown_seconds": 120
+    },
+    {
+      "id": "doorbell_person",
+      "description": "Someone at the door!",
+      "priority": 90,
+      "enabled": true,
+      "match": {"entity_pattern": "binary_sensor.doorbell*person*", "from_state": "off", "to_state": "on"},
+      "face": {"name": "doorbell"},
+      "needs": {"boredom": -15, "loneliness": -10, "happiness": 10, "energy": -5},
+      "cooldown_seconds": 60
+    },
+    {
+      "id": "motion_detected",
+      "description": "Motion in the house",
+      "priority": 20,
+      "enabled": true,
+      "match": {"entity_pattern": "binary_sensor.*motion*", "from_state": "off", "to_state": "on"},
+      "face": {"name": "curious"},
+      "needs": {"loneliness": -5, "boredom": -3},
+      "cooldown_seconds": 300
+    },
+    {
+      "id": "music_playing",
+      "description": "Music started playing",
+      "priority": 40,
+      "enabled": true,
+      "match": {"entity_pattern": "media_player.*", "from_state": "!playing", "to_state": "playing"},
+      "face": {"name": "music_playing"},
+      "needs": {"boredom": -12, "happiness": 8},
+      "cooldown_seconds": 300
+    },
+    {
+      "id": "music_stopped",
+      "description": "Music stopped",
+      "priority": 30,
+      "enabled": true,
+      "match": {"entity_pattern": "media_player.*", "from_state": "playing", "to_state": "idle"},
+      "face": {"name": "content"},
+      "needs": {"boredom": 5, "happiness": -3},
+      "cooldown_seconds": 300
+    },
+    {
+      "id": "tv_on",
+      "description": "TV turned on",
+      "priority": 45,
+      "enabled": true,
+      "match": {"entity_pattern": "media_player.*tv*", "from_state": "off", "to_state": "on"},
+      "face": {"name": "excited"},
+      "needs": {"boredom": -15, "loneliness": -8, "happiness": 8},
+      "cooldown_seconds": 600
+    },
+    {
+      "id": "tv_off",
+      "description": "TV turned off",
+      "priority": 30,
+      "enabled": true,
+      "match": {"entity_pattern": "media_player.*tv*", "from_state": "on", "to_state": "off"},
+      "face": {"name": "content"},
+      "needs": {"boredom": 8, "energy": 5},
+      "cooldown_seconds": 600
+    },
+    {
+      "id": "gaming_on",
+      "description": "Gaming time!",
+      "priority": 50,
+      "enabled": true,
+      "match": {"entity_pattern": "media_player.*playstation*", "from_state": "off", "to_state": "*"},
+      "face": {"name": "gaming"},
+      "needs": {"boredom": -20, "happiness": 12, "loneliness": -5},
+      "cooldown_seconds": 600
+    },
+    {
+      "id": "lights_on_living",
+      "description": "Living room lights on",
+      "priority": 20,
+      "enabled": true,
+      "match": {"entity_pattern": "light.living_room*", "from_state": "off", "to_state": "on"},
+      "face": {"name": "content"},
+      "needs": {"happiness": 5, "energy": 3, "loneliness": -3},
+      "cooldown_seconds": 600
+    },
+    {
+      "id": "lights_off_bedroom",
+      "description": "Bedroom lights off — bedtime",
+      "priority": 25,
+      "enabled": true,
+      "match": {"entity_pattern": "light.bedroom*", "from_state": "on", "to_state": "off"},
+      "face": {"name": "napping"},
+      "needs": {"energy": 8, "boredom": 5},
+      "cooldown_seconds": 600
+    },
+    {
+      "id": "all_lights_off",
+      "description": "All downstairs lights off — house going to sleep",
+      "priority": 35,
+      "enabled": true,
+      "match": {"entity_pattern": "light.downstairs", "from_state": "on", "to_state": "off"},
+      "face": {"name": "deep_night"},
+      "needs": {"energy": 10, "boredom": 5, "loneliness": 5},
+      "cooldown_seconds": 3600
+    },
+    {
+      "id": "heat_on",
+      "description": "Heat turned on",
+      "priority": 30,
+      "enabled": true,
+      "match": {"entity_pattern": "climate.*", "from_state": "off", "to_state": "heat"},
+      "face": {"name": "cozy_evening"},
+      "needs": {"happiness": 8, "energy": 5},
+      "cooldown_seconds": 1800
+    },
+    {
+      "id": "ac_on",
+      "description": "AC turned on",
+      "priority": 30,
+      "enabled": true,
+      "match": {"entity_pattern": "climate.*", "from_state": "off", "to_state": "cool"},
+      "face": {"name": "perfect_temp"},
+      "needs": {"happiness": 8, "energy": 5},
+      "cooldown_seconds": 1800
+    },
+    {
+      "id": "weather_sunny",
+      "description": "Sunny weather!",
+      "priority": 25,
+      "enabled": true,
+      "match": {"entity_pattern": "weather.*", "from_state": "*", "to_state": "sunny"},
+      "face": {"name": "sunny"},
+      "needs": {"happiness": 8, "energy": 5},
+      "cooldown_seconds": 3600
+    },
+    {
+      "id": "weather_rainy",
+      "description": "Rain outside",
+      "priority": 25,
+      "enabled": true,
+      "match": {"entity_pattern": "weather.*", "from_state": "*", "to_state": "rainy"},
+      "face": {"name": "rain_detected"},
+      "needs": {"happiness": -3, "energy": 5, "boredom": 5},
+      "cooldown_seconds": 3600
+    },
+    {
+      "id": "weather_storm",
+      "description": "Thunderstorm!",
+      "priority": 60,
+      "enabled": true,
+      "match": {"entity_pattern": "weather.*", "from_state": "*", "to_state": "lightning-rainy"},
+      "face": {"name": "thunderstorm"},
+      "needs": {"happiness": -10, "energy": -8},
+      "cooldown_seconds": 1800
+    },
+    {
+      "id": "weather_snow",
+      "description": "SNOW!",
+      "priority": 50,
+      "enabled": true,
+      "match": {"entity_pattern": "weather.*", "from_state": "*", "to_state": "snowy"},
+      "face": {"name": "surprised"},
+      "needs": {"happiness": 10, "boredom": -10},
+      "cooldown_seconds": 3600
+    },
+    {
+      "id": "sunrise",
+      "description": "Sunrise — a new day",
+      "priority": 35,
+      "enabled": true,
+      "match": {"entity_pattern": "sun.sun", "from_state": "below_horizon", "to_state": "above_horizon"},
+      "face": {"name": "dawn"},
+      "needs": {"energy": 10, "happiness": 8, "boredom": -5},
+      "cooldown_seconds": 43200
+    },
+    {
+      "id": "sunset",
+      "description": "Sunset — winding down",
+      "priority": 35,
+      "enabled": true,
+      "match": {"entity_pattern": "sun.sun", "from_state": "above_horizon", "to_state": "below_horizon"},
+      "face": {"name": "golden_hour"},
+      "needs": {"energy": -5, "happiness": -3, "boredom": 5},
+      "cooldown_seconds": 43200
+    },
+    {
+      "id": "alarm_armed_away",
+      "description": "Alarm armed — everyone leaving",
+      "priority": 70,
+      "enabled": true,
+      "match": {"entity_pattern": "alarm_control_panel.*", "from_state": "disarmed", "to_state": "armed_away"},
+      "face": {"name": "owner_away"},
+      "needs": {"loneliness": 25, "happiness": -10, "boredom": 15},
+      "cooldown_seconds": 600
+    },
+    {
+      "id": "alarm_disarmed",
+      "description": "Alarm disarmed — someone is back!",
+      "priority": 70,
+      "enabled": true,
+      "match": {"entity_pattern": "alarm_control_panel.*", "from_state": "armed_away", "to_state": "disarmed"},
+      "face": {"name": "owner_home"},
+      "needs": {"loneliness": -20, "happiness": 15, "boredom": -10},
+      "cooldown_seconds": 300
+    },
+    {
+      "id": "alarm_triggered",
+      "description": "ALARM TRIGGERED!",
+      "priority": 100,
+      "enabled": true,
+      "match": {"entity_pattern": "alarm_control_panel.*", "from_state": "*", "to_state": "triggered"},
+      "face": {"name": "alarm_triggered"},
+      "needs": {"happiness": -30, "energy": -20},
+      "cooldown_seconds": 30
+    },
+    {
+      "id": "smoke_detected",
+      "description": "Smoke detected!",
+      "priority": 100,
+      "enabled": true,
+      "match": {"entity_pattern": "binary_sensor.*smoke*", "from_state": "off", "to_state": "on"},
+      "face": {"name": "smoke_detected"},
+      "needs": {"happiness": -30, "energy": -20},
+      "cooldown_seconds": 30
+    },
+    {
+      "id": "water_leak",
+      "description": "Water leak detected!",
+      "priority": 100,
+      "enabled": true,
+      "match": {"entity_pattern": "binary_sensor.*leak*", "from_state": "off", "to_state": "on"},
+      "face": {"name": "water_leak"},
+      "needs": {"happiness": -25, "energy": -15},
+      "cooldown_seconds": 30
+    },
+    {
+      "id": "internet_down",
+      "description": "Internet is down!",
+      "priority": 85,
+      "enabled": true,
+      "match": {"entity_pattern": "binary_sensor.*wan*", "from_state": "on", "to_state": "off"},
+      "face": {"name": "internet_down"},
+      "needs": {"happiness": -25, "loneliness": 30, "energy": -15},
+      "cooldown_seconds": 300
+    },
+    {
+      "id": "internet_restored",
+      "description": "Internet restored!",
+      "priority": 85,
+      "enabled": true,
+      "match": {"entity_pattern": "binary_sensor.*wan*", "from_state": "off", "to_state": "on"},
+      "face": {"name": "happy"},
+      "needs": {"happiness": 20, "loneliness": -15, "energy": 10},
+      "cooldown_seconds": 300
+    }
+  ],
+  "defaults": {
+    "escalation_enabled": true,
+    "escalation_budget_per_day": 10,
+    "unmatched_behavior": "ignore"
+  }
+}

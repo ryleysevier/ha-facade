@@ -1,6 +1,18 @@
 # Changelog
 
-## 1.2.0
+## 2.0.0
+
+- **Rules engine** — replaces the real-time AI pipeline. Events are matched against `reactions.json` rules instantly with zero API calls. Ships with 30 default rules covering presence, doors, media, weather, security, and more.
+- **Data export** — export all HA entity metadata + 30 days of state history to `/data/ha_export.json` for batch learning. Trigger via MQTT (`facade/export`) or web UI.
+- **Batch learning** — feed the export to Claude (via Claude Code or the add-on's API key) to generate a custom `reactions.json` tailored to your specific home. One-time cost ~$0.50 replaces $5-40/month.
+- **AI escalation** — when no rule matches, optionally escalate to Opus (budget-capped, default 10/day). Configurable via `escalation_enabled`, `escalation_budget_per_day`, `escalation_model` in add-on config.
+- **Per-rule cooldowns** — replace the global debounce. Each rule has its own cooldown (person arrives = 5 min, light toggle = 10 min, sunrise = 12 hours).
+- **Import/export rules** via web UI — paste or upload `reactions.json` directly, no file access needed.
+- **MQTT commands** — `facade/reload` (hot-reload rules), `facade/export` (trigger data export), `facade/learn` (trigger batch learning).
+- **Unmatched event log** — events that don't match any rule are logged to `/data/unmatched_events.jsonl` for future learning passes.
+- `need_modifiers.py` absorbed into `reactions.json` — needs and face commands are now unified in one rules table.
+
+## 1.2.2
 
 - **Entity picker web UI** — ingress-based config panel accessible from the HA sidebar. Browse all HA entities by domain, search, and toggle watch/ignore per entity. No more typing entity IDs manually.
 - Ingress enabled with sidebar icon (`mdi:emoticon-outline`)

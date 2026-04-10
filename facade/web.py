@@ -125,6 +125,10 @@ INDEX_HTML = """<!DOCTYPE html>
     <button onclick="history.back()" style="padding:8px 16px; border-radius:6px; border:1px solid #444; background:#2a2a2a; color:#e0e0e0; cursor:pointer; font-size:0.85em;">← Back to HA</button>
   </div>
   <p class="subtitle">Choose which entities your dweller watches or ignores</p>
+  <div class="tabs" style="margin-bottom:12px;">
+    <button class="tab active">Entities</button>
+    <button class="tab" onclick="window.location='./rules'">Rules</button>
+  </div>
   <input class="search" type="text" placeholder="Search entities..." id="search">
   <div class="tabs">
     <button class="tab active" data-filter="all">All</button>
@@ -283,15 +287,230 @@ load();
 </html>"""
 
 
+RULES_PAGE_HTML = """<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Facade — Rules</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #1c1c1c; color: #e0e0e0; padding: 16px; }
+  h1 { font-size: 1.4em; margin-bottom: 4px; }
+  .subtitle { color: #888; font-size: 0.85em; margin-bottom: 16px; }
+  .nav { display: flex; gap: 8px; margin-bottom: 16px; }
+  .nav a { padding: 8px 16px; border-radius: 6px; background: #333; color: #aaa; text-decoration: none; font-size: 0.85em; }
+  .nav a.active { background: #4a9eff; color: #fff; }
+  .section { margin-bottom: 24px; }
+  .section h2 { font-size: 1.1em; margin-bottom: 8px; }
+  .btn { padding: 10px 20px; border-radius: 8px; border: none; cursor: pointer; font-size: 0.9em; }
+  .btn-primary { background: #4a9eff; color: #fff; }
+  .btn-secondary { background: #333; color: #e0e0e0; border: 1px solid #444; }
+  .btn-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  textarea { width: 100%; min-height: 300px; padding: 12px; border-radius: 8px; border: 1px solid #333; background: #2a2a2a; color: #e0e0e0; font-family: monospace; font-size: 0.85em; resize: vertical; }
+  .rule-card { padding: 10px 12px; border: 1px solid #333; border-radius: 6px; margin-bottom: 6px; background: #252525; }
+  .rule-header { display: flex; justify-content: space-between; align-items: center; }
+  .rule-id { font-family: monospace; font-size: 0.8em; color: #4a9eff; }
+  .rule-desc { font-size: 0.9em; }
+  .rule-meta { font-size: 0.75em; color: #666; margin-top: 4px; }
+  .rule-toggle { cursor: pointer; }
+  .event-row { padding: 8px; border-bottom: 1px solid #222; font-size: 0.85em; }
+  .event-time { color: #666; font-size: 0.75em; }
+  .event-entity { font-family: monospace; color: #4a9eff; }
+  .status-msg { padding: 8px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 0.85em; }
+  .status-ok { background: rgba(67,160,71,0.15); color: #66bb6a; }
+  .status-err { background: rgba(219,68,55,0.15); color: #ef5350; }
+  .budget { padding: 10px; background: #252525; border-radius: 6px; font-size: 0.85em; margin-bottom: 12px; }
+</style>
+</head>
+<body>
+  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+    <h1>Facade Rules</h1>
+    <button class="btn btn-secondary" onclick="history.back()">← Back</button>
+  </div>
+  <p class="subtitle">Manage reaction rules, export data, and view unmatched events</p>
+  <div class="nav">
+    <a href="./" class="">Entities</a>
+    <a href="./rules" class="active">Rules</a>
+  </div>
+
+  <div class="section">
+    <h2>Current Rules</h2>
+    <div class="btn-row">
+      <button class="btn btn-secondary" onclick="downloadRules()">Download rules.json</button>
+      <button class="btn btn-primary" onclick="document.getElementById('import-section').style.display='block'">Import Rules</button>
+      <button class="btn btn-secondary" onclick="exportData()">Export HA Data</button>
+    </div>
+    <div id="rules-list"></div>
+  </div>
+
+  <div class="section" id="import-section" style="display:none;">
+    <h2>Import reactions.json</h2>
+    <p class="subtitle">Paste your generated reactions.json below</p>
+    <textarea id="import-json" placeholder='{"version": 1, "rules": [...]}'></textarea>
+    <div class="btn-row" style="margin-top:8px;">
+      <button class="btn btn-primary" onclick="importRules()">Validate & Import</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('import-section').style.display='none'">Cancel</button>
+    </div>
+    <div id="import-status"></div>
+  </div>
+
+  <div class="section">
+    <h2>Escalation Budget</h2>
+    <div class="budget" id="budget-info">Loading...</div>
+  </div>
+
+  <div class="section">
+    <h2>Unmatched Events</h2>
+    <p class="subtitle">Events that didn't match any rule</p>
+    <div id="unmatched-list"></div>
+  </div>
+
+<script>
+async function loadRules() {
+  const resp = await fetch("./api/rules");
+  const data = await resp.json();
+
+  // Rules list
+  const list = document.getElementById("rules-list");
+  list.innerHTML = data.rules.length === 0
+    ? '<div class="rule-card">No rules loaded. Import a reactions.json or export HA data and run batch learning.</div>'
+    : "";
+  for (const r of data.rules) {
+    const card = document.createElement("div");
+    card.className = "rule-card";
+    const face = r.face?.name || (r.face?.p !== undefined ? `PAD(${r.face.p},${r.face.a},${r.face.d})` : "—");
+    const needs = r.needs ? Object.entries(r.needs).map(([k,v]) => `${k}:${v>0?"+":""}${v}`).join(" ") : "";
+    card.innerHTML = `
+      <div class="rule-header">
+        <div><span class="rule-desc">${r.description || r.id}</span> <span class="rule-id">${r.id}</span></div>
+        <span style="color:${r.enabled !== false ? '#66bb6a' : '#666'}">${r.enabled !== false ? '●' : '○'}</span>
+      </div>
+      <div class="rule-meta">
+        ${r.match.entity_pattern} | ${r.match.from_state||"*"} → ${r.match.to_state||"*"} | face: ${face} | ${needs} | cooldown: ${r.cooldown_seconds||0}s | priority: ${r.priority||0}
+      </div>
+    `;
+    list.appendChild(card);
+  }
+
+  // Budget
+  document.getElementById("budget-info").innerHTML = `
+    Escalation: ${data.budget.enabled ? "enabled" : "disabled"} |
+    Model: ${data.budget.model} |
+    Used today: ${data.budget.used}/${data.budget.budget} |
+    Remaining: ${data.budget.remaining}
+  `;
+
+  // Unmatched events
+  const ulist = document.getElementById("unmatched-list");
+  ulist.innerHTML = data.unmatched.length === 0
+    ? '<div class="event-row" style="color:#666">No unmatched events yet</div>'
+    : "";
+  for (const e of data.unmatched) {
+    if (e.type === "escalation_result") continue;
+    const row = document.createElement("div");
+    row.className = "event-row";
+    row.innerHTML = `
+      <span class="event-entity">${e.entity_id}</span>
+      ${e.from_state} → ${e.to_state}
+      <span class="event-time">${e.timestamp || ""}</span>
+    `;
+    ulist.appendChild(row);
+  }
+}
+
+function downloadRules() {
+  window.open("./api/rules/download", "_blank");
+}
+
+async function exportData() {
+  const btn = event.target;
+  btn.textContent = "Exporting...";
+  btn.disabled = true;
+  try {
+    const resp = await fetch("./api/export", {method: "POST"});
+    const data = await resp.json();
+    if (data.ok) {
+      btn.textContent = "Export complete!";
+      setTimeout(() => { btn.textContent = "Export HA Data"; btn.disabled = false; }, 3000);
+    } else {
+      btn.textContent = "Export failed";
+      btn.disabled = false;
+    }
+  } catch(e) {
+    btn.textContent = "Export failed";
+    btn.disabled = false;
+  }
+}
+
+async function importRules() {
+  const text = document.getElementById("import-json").value;
+  const status = document.getElementById("import-status");
+  try {
+    JSON.parse(text);  // validate JSON locally first
+  } catch(e) {
+    status.innerHTML = `<div class="status-msg status-err">Invalid JSON: ${e.message}</div>`;
+    return;
+  }
+  const resp = await fetch("./api/rules/import", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: text,
+  });
+  const data = await resp.json();
+  if (data.ok) {
+    status.innerHTML = `<div class="status-msg status-ok">Imported ${data.rule_count} rules! Rules engine reloaded.</div>`;
+    document.getElementById("import-section").style.display = "none";
+    loadRules();
+  } else {
+    status.innerHTML = `<div class="status-msg status-err">Import failed: ${data.error}</div>`;
+  }
+}
+
+loadRules();
+</script>
+</body>
+</html>"""
+
+
+# Reference to rules_engine — set by run.py after initialization
+_rules_engine = None
+_escalation = None
+
+def set_engines(rules_engine, escalation_engine):
+    global _rules_engine, _escalation
+    _rules_engine = rules_engine
+    _escalation = escalation_engine
+
+
 class ConfigHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path.endswith("/api/entities"):
             entities = get_ha_entities()
             config = load_entity_config()
+            self._json_response({"entities": entities, "config": config})
+        elif self.path.endswith("/api/rules"):
+            rules = _rules_engine.rules if _rules_engine else []
+            budget = _escalation.get_budget_status() if _escalation else {}
+            unmatched = _escalation.get_unmatched_events() if _escalation else []
+            self._json_response({"rules": rules, "budget": budget, "unmatched": unmatched})
+        elif self.path.endswith("/api/rules/download"):
+            import os
+            path = "/data/reactions.json"
+            if os.path.exists(path):
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Disposition", "attachment; filename=reactions.json")
+                self.end_headers()
+                with open(path, "rb") as f:
+                    self.wfile.write(f.read())
+            else:
+                self._json_response({"error": "No reactions.json found"}, 404)
+        elif self.path.endswith("/rules"):
             self.send_response(200)
-            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Type", "text/html")
             self.end_headers()
-            self.wfile.write(json.dumps({"entities": entities, "config": config}).encode())
+            self.wfile.write(RULES_PAGE_HTML.encode())
         else:
             self.send_response(200)
             self.send_header("Content-Type", "text/html")
@@ -299,21 +518,48 @@ class ConfigHandler(BaseHTTPRequestHandler):
             self.wfile.write(INDEX_HTML.encode())
 
     def do_POST(self):
+        length = int(self.headers.get("Content-Length", 0))
+        body_bytes = self.rfile.read(length) if length else b""
+
         if self.path.endswith("/api/entities"):
-            length = int(self.headers.get("Content-Length", 0))
-            body = json.loads(self.rfile.read(length))
+            body = json.loads(body_bytes)
             entity_config["watched"] = body.get("watched", [])
             entity_config["ignored"] = body.get("ignored", [])
             save_entity_config()
             log.info("Entity config updated: %d watched, %d ignored",
                      len(entity_config["watched"]), len(entity_config["ignored"]))
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.end_headers()
-            self.wfile.write(json.dumps({"ok": True}).encode())
+            self._json_response({"ok": True})
+        elif self.path.endswith("/api/rules/import"):
+            try:
+                data = json.loads(body_bytes)
+                if "rules" not in data:
+                    self._json_response({"ok": False, "error": "Missing 'rules' key"}, 400)
+                    return
+                data.setdefault("version", 1)
+                with open("/data/reactions.json", "w") as f:
+                    json.dump(data, f, indent=2)
+                if _rules_engine:
+                    _rules_engine.reload()
+                rule_count = len(data["rules"])
+                log.info("Imported %d rules via web UI", rule_count)
+                self._json_response({"ok": True, "rule_count": rule_count})
+            except Exception as e:
+                self._json_response({"ok": False, "error": str(e)}, 400)
+        elif self.path.endswith("/api/export"):
+            import threading
+            from data_export import export_ha_data
+            # Run in background to avoid timeout
+            threading.Thread(target=lambda: export_ha_data(days=30), daemon=True).start()
+            self._json_response({"ok": True, "message": "Export started"})
         else:
             self.send_response(404)
             self.end_headers()
+
+    def _json_response(self, data, status=200):
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps(data).encode())
 
     def log_message(self, format, *args):
         pass  # suppress default HTTP logs

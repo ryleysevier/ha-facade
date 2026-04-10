@@ -13,8 +13,10 @@ import anthropic
 import paho.mqtt.client as mqtt
 import requests
 
-from need_modifiers import match_event as match_need_modifiers, aggregate_needs
-from web import start_web_server, load_entity_config, entity_config as web_entity_config
+from rules_engine import RulesEngine, aggregate_need_deltas
+from escalation import Escalation
+from data_export import export_ha_data
+from web import start_web_server, load_entity_config, set_engines
 
 # ---------------------------------------------------------------------------
 # Config
@@ -58,6 +60,9 @@ NEED_DECAY = OPTIONS.get("need_decay_rates", {
     "loneliness": 0.0016, # ~4 pets/day
     "energy": -0.0016,    # drains over ~17h active hours
 })
+ESCALATION_ENABLED = OPTIONS.get("escalation_enabled", True)
+ESCALATION_BUDGET = OPTIONS.get("escalation_budget_per_day", 10)
+ESCALATION_MODEL = OPTIONS.get("escalation_model", "claude-opus-4-20250514")
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -246,7 +251,19 @@ def is_quiet_hours() -> bool:
 # Anthropic
 # ---------------------------------------------------------------------------
 
-ai_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+ai_client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY) if ANTHROPIC_API_KEY else None
+
+# ---------------------------------------------------------------------------
+# Rules engine + escalation
+# ---------------------------------------------------------------------------
+
+rules_engine = RulesEngine()
+escalation = Escalation(
+    enabled=ESCALATION_ENABLED,
+    budget_per_day=ESCALATION_BUDGET,
+    model=ESCALATION_MODEL,
+    ai_client=ai_client,
+)
 
 # ---------------------------------------------------------------------------
 # MQTT
@@ -278,6 +295,22 @@ def on_mqtt_message(client, userdata, msg):
         elif topic == f"{TOPIC_PREFIX}/mood_select":
             mood_name = msg.payload.decode().strip()
             publish_face({"name": mood_name}, reason="mood override")
+        elif topic == f"{TOPIC_PREFIX}/reload":
+            rules_engine.reload()
+            log.info("Rules reloaded via MQTT command")
+        elif topic == f"{TOPIC_PREFIX}/export":
+            threading.Thread(target=lambda: export_ha_data(WATCHED_DOMAINS, 30), daemon=True).start()
+            log.info("Data export triggered via MQTT command")
+        elif topic == f"{TOPIC_PREFIX}/learn":
+            if ai_client:
+                from batch_learn import run_batch_learning
+                threading.Thread(
+                    target=lambda: (run_batch_learning(ai_client, BRAIN_MODEL), rules_engine.reload()),
+                    daemon=True,
+                ).start()
+                log.info("Batch learning triggered via MQTT command")
+            else:
+                log.warning("Cannot run batch learning — no API key configured")
     except Exception as e:
         log.error("Error handling MQTT command on %s: %s", topic, e)
 
@@ -661,87 +694,59 @@ What face should {PET_NAME} show?"""
 # Pipeline
 # ---------------------------------------------------------------------------
 
-last_trigger_time = 0.0
-
 def handle_event(entity_id: str, old_state: str, new_state: str, friendly_name: str):
-    global last_trigger_time
-
-    now = time.time()
-    if now - last_trigger_time < DEBOUNCE_SECONDS:
-        log.debug("Debounced %s", entity_id)
-        return
     if is_quiet_hours():
         log.debug("Quiet hours — skipping %s", entity_id)
         return
     if not pet.can_change_face():
         log.info("Rate limit hit (%d/hr) — skipping %s", MAX_CHANGES_PER_HOUR, entity_id)
         return
-    last_trigger_time = now
 
-    timestamp = datetime.now().isoformat()
+    # --- Rules engine (instant, zero tokens) ---
+    face_cmd, need_deltas, reasons = rules_engine.match(entity_id, old_state, new_state)
 
-    # --- Tier 1: Haiku filter ---
-    log.info("Haiku filter: %s %s -> %s", friendly_name, old_state, new_state)
-    try:
-        haiku_resp = ai_client.messages.create(
-            model=HAIKU_MODEL,
-            max_tokens=100,
-            system=HAIKU_SYSTEM,
-            messages=[{
-                "role": "user",
-                "content": (
-                    f'Event: {entity_id} changed from "{old_state}" to "{new_state}"\n'
-                    f"Entity name: {friendly_name}\n"
-                    f"Time: {timestamp}\n"
-                    f"Pet needs: {pet.needs_summary()}"
-                ),
-            }],
+    if face_cmd:
+        reason = "; ".join(reasons)
+        log.info("Rule matched: %s %s -> %s — %s", friendly_name, old_state, new_state, reason)
+
+        # Apply need modifiers
+        if need_deltas:
+            totals = aggregate_need_deltas(need_deltas)
+            for need, delta in totals.items():
+                current = getattr(pet, need, None)
+                if current is not None:
+                    setattr(pet, need, min(100, max(0, current + delta)))
+            pet.save()
+            publish_status()
+
+        # Record event
+        pet.recent_events.append({
+            "entity_id": entity_id, "from": old_state, "to": new_state,
+            "name": friendly_name, "time": datetime.now().isoformat(), "reason": reason,
+        })
+
+        publish_face(face_cmd, reason=reason)
+        return
+
+    # --- No rule matched — try escalation ---
+    if escalation.should_escalate(entity_id, old_state, new_state):
+        face_cmd, need_mods = escalation.escalate(
+            entity_id, old_state, new_state, friendly_name,
+            pet_needs=pet.needs_summary(),
         )
-        haiku_result = parse_json_response(haiku_resp.content[0].text)
-    except Exception as e:
-        log.error("Haiku API error: %s", e)
-        return
+        if face_cmd:
+            if need_mods:
+                for need, delta in need_mods.items():
+                    current = getattr(pet, need, None)
+                    if current is not None:
+                        setattr(pet, need, min(100, max(0, current + delta)))
+                pet.save()
+                publish_status()
+            publish_face(face_cmd, reason="AI escalation")
+            return
 
-    if not haiku_result.get("express"):
-        log.info("Haiku says skip: %s", entity_id)
-        return
-
-    reason = haiku_result.get("reason", "")
-    log.info("Haiku says express: %s — %s", entity_id, reason)
-
-    event = {
-        "entity_id": entity_id,
-        "from": old_state,
-        "to": new_state,
-        "name": friendly_name,
-        "time": timestamp,
-        "reason": reason,
-    }
-    pet.recent_events.append(event)
-
-    # --- Gather context ---
-    states = get_ha_states()
-    context_prompt = build_context(event, states)
-
-    # --- Tier 2: Brain ---
-    log.info("Brain thinking about %s...", entity_id)
-    try:
-        brain_resp = ai_client.messages.create(
-            model=BRAIN_MODEL,
-            max_tokens=300,
-            system=brain_system_prompt(),
-            messages=[{"role": "user", "content": context_prompt}],
-        )
-        face_command = parse_json_response(brain_resp.content[0].text)
-    except Exception as e:
-        log.error("Brain API error: %s", e)
-        return
-
-    if not face_command:
-        log.warning("Brain returned empty response for %s", entity_id)
-        return
-
-    publish_face(face_command, reason=reason)
+    # --- Log unmatched (always) ---
+    escalation.log_unmatched(entity_id, old_state, new_state, friendly_name)
 
 # ---------------------------------------------------------------------------
 # Needs decay + idle mood thread
@@ -787,6 +792,7 @@ def run():
     log.info("Facade starting — %s is waking up", PET_NAME)
 
     # Start config web UI
+    set_engines(rules_engine, escalation)
     web_thread = threading.Thread(target=start_web_server, daemon=True)
     web_thread.start()
 
@@ -872,22 +878,6 @@ def connect_ha_websocket():
                 return
 
             friendly_name = new.get("attributes", {}).get("friendly_name", entity_id)
-
-            # Apply event-based need modifiers
-            modifiers = match_need_modifiers(entity_id, old["state"], new["state"])
-            if modifiers:
-                deltas, reasons = aggregate_needs(modifiers)
-                for need, delta in deltas.items():
-                    current = getattr(pet, need, None)
-                    if current is not None:
-                        setattr(pet, need, min(100, max(0, current + delta)))
-                if deltas:
-                    log.info("Needs modified by %s: %s (%s)", entity_id,
-                             {k: f"{'+' if v > 0 else ''}{v}" for k, v in deltas.items()},
-                             "; ".join(reasons))
-                    pet.save()
-                    publish_status()
-
             handle_event(entity_id, old["state"], new["state"], friendly_name)
 
     def on_error(ws, error):

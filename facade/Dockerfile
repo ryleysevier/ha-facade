@@ -6,7 +6,11 @@ COPY requirements.txt /
 RUN pip3 install --no-cache-dir --break-system-packages -r /requirements.txt
 
 COPY run.py /
-COPY need_modifiers.py /
+COPY rules_engine.py /
+COPY escalation.py /
+COPY data_export.py /
+COPY batch_learn.py /
+COPY reactions_default.json /
 COPY web.py /
 COPY dweller-card.js /
 COPY run.sh /
