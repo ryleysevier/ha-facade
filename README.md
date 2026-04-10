@@ -124,6 +124,10 @@ All topics use the configurable prefix (default: `facade`).
 | `facade/mood_override` | `{"name": "excited"}` | Override mood (JSON) |
 | `facade/mood_select` | `excited` | Override mood (string) |
 
+## Related
+
+- **[ha-facade-dweller](https://github.com/ryleysevier/ha-facade-dweller)** — ESP32 firmware for the physical display (CrowPanel GC9A01 round screen). The "dumb terminal" that renders face commands from this add-on.
+
 ## Cost
 
 - **Haiku filter**: ~100-300 calls/day x $0.001 = $0.10-0.30/day
