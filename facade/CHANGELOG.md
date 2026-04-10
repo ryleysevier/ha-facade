@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.1
+
+- **Event-based need modifiers** — 60+ smart home events now affect pet needs (not just face changes). Someone arriving home lowers loneliness, music playing reduces boredom, thunderstorms scare the pet, etc.
+- Stable MQTT Discovery unique IDs anchored to device ID — no more `_2`/`_3` suffixes on reinstall
+- Entity names shortened (device provides context)
+- Improved self-watch filter — ignores both `facade` and `dweller` entity patterns
+
+## 1.1.0
+
+- Stable MQTT Discovery IDs anchored to device ID
+- Self-watch filter improved
+- Default brain model corrected
+
+## 1.0.9
+
+- Dashboard card tolerates HA entity ID suffixes dynamically
+
 ## 1.0.8
 
 - Fix brain model ID (`claude-sonnet-4-5-20241022`) — previous ID returned 404

@@ -13,6 +13,8 @@ import anthropic
 import paho.mqtt.client as mqtt
 import requests
 
+from need_modifiers import match_event as match_need_modifiers, aggregate_needs
+
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
@@ -859,12 +861,20 @@ def connect_ha_websocket():
 
             friendly_name = new.get("attributes", {}).get("friendly_name", entity_id)
 
-            # presence events affect loneliness
-            if entity_id.startswith("person."):
-                if new["state"] == "home":
-                    pet.loneliness = max(0, pet.loneliness - 20)
-                elif old["state"] == "home":
-                    pet.loneliness = min(100, pet.loneliness + 15)
+            # Apply event-based need modifiers
+            modifiers = match_need_modifiers(entity_id, old["state"], new["state"])
+            if modifiers:
+                deltas, reasons = aggregate_needs(modifiers)
+                for need, delta in deltas.items():
+                    current = getattr(pet, need, None)
+                    if current is not None:
+                        setattr(pet, need, min(100, max(0, current + delta)))
+                if deltas:
+                    log.info("Needs modified by %s: %s (%s)", entity_id,
+                             {k: f"{'+' if v > 0 else ''}{v}" for k, v in deltas.items()},
+                             "; ".join(reasons))
+                    pet.save()
+                    publish_status()
 
             handle_event(entity_id, old["state"], new["state"], friendly_name)
 
