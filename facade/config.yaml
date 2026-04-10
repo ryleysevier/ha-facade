@@ -1,6 +1,6 @@
 name: "Facade"
 description: "AI-powered dweller pet that reacts to your smart home via MQTT"
-version: "1.0.4"
+version: "1.0.5"
 slug: "facade"
 url: "https://github.com/ryleysevier/ha-facade"
 image: "ghcr.io/ryleysevier/ha-facade/{arch}"
@@ -8,6 +8,9 @@ arch:
   - aarch64
   - amd64
 homeassistant_api: true
+map:
+  - type: homeassistant_config
+    read_only: false
 services:
   - mqtt:need
 options:
