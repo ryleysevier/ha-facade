@@ -87,7 +87,9 @@ INDEX_HTML = """<!DOCTYPE html>
   .domain-header {
     font-size: 0.8em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
     color: #888; padding: 6px 0; border-bottom: 1px solid #333; margin-bottom: 4px;
+    display: flex; justify-content: space-between; align-items: center;
   }
+  .domain-actions { display: flex; gap: 4px; }
   .entity-row {
     display: flex; align-items: center; padding: 8px 4px; gap: 10px;
     border-bottom: 1px solid #222;
@@ -171,9 +173,22 @@ function render() {
 
     if (filtered.length === 0) continue;
 
+    const allWatched = filtered.every(e => watched.has(e.id));
+    const allIgnored = filtered.every(e => ignored.has(e.id));
+
     const group = document.createElement("div");
     group.className = "domain-group";
-    group.innerHTML = `<div class="domain-header">${domain} (${filtered.length})</div>`;
+    group.innerHTML = `<div class="domain-header">
+      <span>${domain} (${filtered.length})</span>
+      <span class="domain-actions">
+        <button class="toggle-btn ${allWatched ? 'watch' : ''}"
+                onclick="toggleDomain('${domain}', 'watch')">
+          ${allWatched ? '✓ All' : 'Watch all'}</button>
+        <button class="toggle-btn ${allIgnored ? 'ignore' : ''}"
+                onclick="toggleDomain('${domain}', 'ignore')">
+          ${allIgnored ? '✗ All' : 'Ignore all'}</button>
+      </span>
+    </div>`;
 
     for (const e of filtered) {
       const isWatched = watched.has(e.id);
@@ -210,6 +225,24 @@ function toggle(entityId, mode) {
   } else {
     watched.delete(entityId);
     ignored.has(entityId) ? ignored.delete(entityId) : ignored.add(entityId);
+  }
+  dirty = true;
+  render();
+}
+
+function toggleDomain(domain, mode) {
+  const items = entities[domain] || [];
+  const allSet = items.every(e =>
+    mode === "watch" ? watched.has(e.id) : ignored.has(e.id)
+  );
+  for (const e of items) {
+    if (mode === "watch") {
+      ignored.delete(e.id);
+      allSet ? watched.delete(e.id) : watched.add(e.id);
+    } else {
+      watched.delete(e.id);
+      allSet ? ignored.delete(e.id) : ignored.add(e.id);
+    }
   }
   dirty = true;
   render();
