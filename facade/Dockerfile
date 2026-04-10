@@ -7,6 +7,8 @@ RUN pip3 install --no-cache-dir --break-system-packages -r /requirements.txt
 
 COPY run.py /
 COPY dweller-card.js /
+COPY run.sh /
+RUN chmod a+x /run.sh
 
 ARG BUILD_ARCH
 ARG BUILD_DATE
@@ -29,4 +31,4 @@ LABEL \
     org.opencontainers.image.revision=${BUILD_REF} \
     org.opencontainers.image.version=${BUILD_VERSION}
 
-CMD ["python3", "-u", "/run.py"]
+CMD ["/run.sh"]
