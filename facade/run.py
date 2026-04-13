@@ -144,16 +144,23 @@ class PetState:
         except Exception as e:
             log.error("Failed to save pet state: %s", e)
 
-    def decay_tick(self):
+    def decay_tick(self, sleeping: bool = False):
         """Apply need decay based on elapsed time since last tick."""
         now = time.time()
         elapsed = now - self.last_decay_tick
         self.last_decay_tick = now
 
-        self.hunger = min(100, max(0, self.hunger + NEED_DECAY.get("hunger", 0.014) * elapsed))
-        self.boredom = min(100, max(0, self.boredom + NEED_DECAY.get("boredom", 0.055) * elapsed))
-        self.loneliness = min(100, max(0, self.loneliness + NEED_DECAY.get("loneliness", 0.028) * elapsed))
-        self.energy = min(100, max(0, self.energy + NEED_DECAY.get("energy", -0.008) * elapsed))
+        if sleeping:
+            # While sleeping: energy restores, other needs decay slower
+            self.energy = min(100, max(0, self.energy + 0.003 * elapsed))  # full restore in ~9 hours
+            self.hunger = min(100, max(0, self.hunger + NEED_DECAY.get("hunger", 0.0015) * elapsed * 0.5))
+            self.boredom = min(100, max(0, self.boredom + NEED_DECAY.get("boredom", 0.0012) * elapsed * 0.3))
+            self.loneliness = min(100, max(0, self.loneliness + NEED_DECAY.get("loneliness", 0.0016) * elapsed * 0.3))
+        else:
+            self.hunger = min(100, max(0, self.hunger + NEED_DECAY.get("hunger", 0.0015) * elapsed))
+            self.boredom = min(100, max(0, self.boredom + NEED_DECAY.get("boredom", 0.0012) * elapsed))
+            self.loneliness = min(100, max(0, self.loneliness + NEED_DECAY.get("loneliness", 0.0016) * elapsed))
+            self.energy = min(100, max(0, self.energy + NEED_DECAY.get("energy", -0.0016) * elapsed))
 
         # happiness is derived from needs
         need_avg = (self.hunger + self.boredom + self.loneliness + (100 - self.energy)) / 4
@@ -608,26 +615,53 @@ def handle_event(entity_id: str, old_state: str, new_state: str, friendly_name: 
 # ---------------------------------------------------------------------------
 
 def needs_loop():
-    """Background loop: decay needs, publish status, trigger idle moods."""
+    """Background loop: decay needs, publish status, manage sleep cycle."""
+    was_sleeping = False
+
     while True:
         time.sleep(60)
-        pet.decay_tick()
+        sleeping = is_quiet_hours()
+        pet.decay_tick(sleeping=sleeping)
         publish_status()
 
-        # If a need is critical and no recent face change, express it
-        dominant = pet.dominant_need()
-        if dominant and pet.can_change_face() and not is_quiet_hours():
-            mins_since_mood = (time.time() - pet.mood_set_at) / 60
-            if mins_since_mood > 30:
-                need_moods = {
-                    "hungry": "hungry",
-                    "bored": "bored",
-                    "lonely": "lonely",
-                    "exhausted": "exhausted",
-                }
-                mood = need_moods.get(dominant, "sad")
-                log.info("Idle need expression: %s (%.0f min since last change)", dominant, mins_since_mood)
-                publish_face({"name": mood}, reason=f"feeling {dominant}")
+        # --- Sleep cycle transitions ---
+        if sleeping and not was_sleeping:
+            # Just fell asleep
+            log.info("%s is going to sleep", PET_NAME)
+            publish_face({"name": "napping"}, reason="bedtime")
+            was_sleeping = True
+
+        elif not sleeping and was_sleeping:
+            # Just woke up
+            if pet.energy > 70:
+                log.info("%s woke up refreshed! energy=%.0f", PET_NAME, pet.energy)
+                publish_face({"name": "morning_energy"}, reason="good morning!")
+            else:
+                log.info("%s woke up groggy... energy=%.0f", PET_NAME, pet.energy)
+                publish_face({"name": "tired"}, reason="didn't sleep enough")
+            was_sleeping = False
+
+        elif sleeping:
+            # Still sleeping — deep sleep face after a while
+            mins_asleep = (time.time() - pet.mood_set_at) / 60
+            if mins_asleep > 30 and pet.mood != "deep_night":
+                publish_face({"name": "deep_night"}, reason="deep sleep")
+
+        else:
+            # Awake — express unmet needs if idle
+            dominant = pet.dominant_need()
+            if dominant and pet.can_change_face():
+                mins_since_mood = (time.time() - pet.mood_set_at) / 60
+                if mins_since_mood > 30:
+                    need_moods = {
+                        "hungry": "hungry",
+                        "bored": "bored",
+                        "lonely": "lonely",
+                        "exhausted": "exhausted",
+                    }
+                    mood = need_moods.get(dominant, "sad")
+                    log.info("Idle need expression: %s (%.0f min since last change)", dominant, mins_since_mood)
+                    publish_face({"name": mood}, reason=f"feeling {dominant}")
 
         pet.save()
 
