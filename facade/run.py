@@ -311,13 +311,19 @@ def on_mqtt_message(client, userdata, msg):
 
 mqtt_client.on_message = on_mqtt_message
 
+def on_mqtt_connect(client, userdata, flags, reason_code, properties=None):
+    # Re-subscribe on every (re)connection so subs survive broker restarts.
+    client.subscribe(f"{TOPIC_PREFIX}/#")
+    log.info("MQTT (re)connected to %s:%s, subscribed to %s/#", MQTT_HOST, MQTT_PORT, TOPIC_PREFIX)
+
+mqtt_client.on_connect = on_mqtt_connect
+mqtt_client.reconnect_delay_set(min_delay=1, max_delay=30)
+
 def connect_mqtt():
     while True:
         try:
             mqtt_client.connect(MQTT_HOST, MQTT_PORT)
-            mqtt_client.subscribe(f"{TOPIC_PREFIX}/#")
             mqtt_client.loop_start()
-            log.info("MQTT connected to %s:%s, subscribed to %s/#", MQTT_HOST, MQTT_PORT, TOPIC_PREFIX)
             return
         except Exception as e:
             log.warning("MQTT connect failed: %s — retrying in 5s", e)
@@ -334,7 +340,7 @@ DEVICE_INFO = {
     "name": f"Facade ({PET_NAME})",
     "manufacturer": "Facade",
     "model": "AI Pet",
-    "sw_version": "1.0.9",
+    "sw_version": "2.0.4",
 }
 
 def publish_discovery():
