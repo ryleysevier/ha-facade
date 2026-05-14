@@ -340,7 +340,7 @@ DEVICE_INFO = {
     "name": f"Facade ({PET_NAME})",
     "manufacturer": "Facade",
     "model": "AI Pet",
-    "sw_version": "2.0.4",
+    "sw_version": "2.1.0",
 }
 
 def publish_discovery():
@@ -497,6 +497,60 @@ def publish_face(face_command: dict, reason: str = ""):
     pet.set_mood(mood_name, reason)
     pet.record_face_change()
     pet.save()
+
+# ---------------------------------------------------------------------------
+# Now Playing overlay
+# ---------------------------------------------------------------------------
+
+NOW_PLAYING_HOLD_MS = 10000          # how long the overlay holds on the dweller
+NOW_PLAYING_DEDUPE_S = 30            # suppress duplicate (entity, title) within this window
+_now_playing_last = {}               # entity_id -> (title, timestamp)
+
+def _is_music_player(entity_id: str) -> bool:
+    if not entity_id.startswith("media_player."):
+        return False
+    # Exclude TVs / receivers — only fire for music
+    return "tv" not in entity_id.lower()
+
+def handle_now_playing(entity_id: str, old: dict, new: dict) -> None:
+    """If a music player just started or changed tracks, publish to facade/now_playing."""
+    if not _is_music_player(entity_id):
+        return
+    if is_quiet_hours():
+        return
+    if new.get("state") != "playing":
+        return
+
+    new_attrs = new.get("attributes") or {}
+    title = (new_attrs.get("media_title") or "").strip()
+    if not title:
+        return
+    artist = (new_attrs.get("media_artist") or new_attrs.get("media_album_artist") or "").strip()
+
+    old_state = (old or {}).get("state")
+    old_attrs = (old or {}).get("attributes") or {}
+    old_title = (old_attrs.get("media_title") or "").strip()
+
+    # Trigger on state→playing OR on title change mid-playback
+    is_new_play = old_state != "playing"
+    is_new_track = old_state == "playing" and title != old_title
+    if not (is_new_play or is_new_track):
+        return
+
+    # De-dupe: same (entity, title) within window
+    now = time.time()
+    last = _now_playing_last.get(entity_id)
+    if last and last[0] == title and (now - last[1]) < NOW_PLAYING_DEDUPE_S:
+        return
+    _now_playing_last[entity_id] = (title, now)
+
+    payload = json.dumps({
+        "title": title,
+        "artist": artist,
+        "duration_ms": NOW_PLAYING_HOLD_MS,
+    })
+    mqtt_client.publish(f"{TOPIC_PREFIX}/now_playing", payload)
+    log.info("Now playing on %s: %s — %s", entity_id, title, artist or "?")
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -767,6 +821,15 @@ def connect_ha_websocket():
 
             if not old or not new:
                 return
+
+            # Now-playing overlay watches attribute changes too (track changes
+            # arrive as state_changed events with state staying "playing"), so
+            # run it before the same-state and watched-list filters.
+            try:
+                handle_now_playing(entity_id, old, new)
+            except Exception as e:
+                log.debug("now_playing handler error on %s: %s", entity_id, e)
+
             if old.get("state") == new.get("state"):
                 return
             if not should_watch(entity_id):
